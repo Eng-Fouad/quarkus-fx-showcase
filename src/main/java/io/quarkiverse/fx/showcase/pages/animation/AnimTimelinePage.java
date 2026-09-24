@@ -229,10 +229,13 @@ public class AnimTimelinePage implements FeaturePage {
         curves.put("SPLINE(.8,0,.2,1)", of(Interpolator.SPLINE(0.8, 0, 0.2, 1)));
         curves.put("BOUNCE (custom)", of(BOUNCE));
         // tangent interpolators only have an effect within a timeline : sample one
-        curves.put("TANGENT flat", sampled(Interpolator.TANGENT(Duration.millis(1000), 0),
+        curves.put("TANGENT flat", sampled(new double[] { 0, 1 }, Interpolator.TANGENT(Duration.millis(1000), 0),
                 Interpolator.TANGENT(Duration.millis(1000), 1)));
-        curves.put("TANGENT overshoot", sampled(Interpolator.TANGENT(Duration.millis(500), 1.0),
-                Interpolator.TANGENT(Duration.millis(500), 1.5)));
+        // 3 key frames : the middle one has different in and out tangents (4 argument variant)
+        curves.put("TANGENT in/out, mid key", sampled(new double[] { 0, 0.5, 1 },
+                Interpolator.TANGENT(Duration.millis(250), 0.2),
+                Interpolator.TANGENT(Duration.millis(250), 0.45, Duration.millis(250), 0.95),
+                Interpolator.TANGENT(Duration.millis(250), 1.0)));
         curves.put("STEP_START", of(Interpolator.STEP_START));
         curves.put("STEP_END", of(Interpolator.STEP_END));
         curves.put("STEPS(4, START)", of(Interpolator.STEPS(4, Interpolator.StepPosition.START)));
@@ -247,13 +250,16 @@ public class AnimTimelinePage implements FeaturePage {
     }
 
     /**
-     * Samples a 1 second timeline from 0 to 1 whose key values use tangent interpolators.
+     * Samples a 1 second timeline whose key frames (evenly spaced, with the given values) use tangent interpolators.
      */
-    private static DoubleUnaryOperator sampled(Interpolator start, Interpolator end) {
+    private static DoubleUnaryOperator sampled(double[] values, Interpolator... interpolators) {
         return t -> {
             DoubleProperty value = new SimpleDoubleProperty();
-            Timeline timeline = new Timeline(new KeyFrame(Duration.ZERO, new KeyValue(value, 0, start)),
-                    new KeyFrame(Duration.millis(1000), new KeyValue(value, 1, end)));
+            Timeline timeline = new Timeline();
+            for (int k = 0; k < values.length; k++) {
+                timeline.getKeyFrames().add(new KeyFrame(Duration.millis(1000.0 * k / (values.length - 1)),
+                        new KeyValue(value, values[k], interpolators[k])));
+            }
             timeline.play();
             timeline.jumpTo(Duration.millis(t * 1000));
             double result = value.get();

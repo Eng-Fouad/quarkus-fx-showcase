@@ -2,8 +2,10 @@ package io.quarkiverse.fx.showcase.pages.charts;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Supplier;
@@ -13,6 +15,8 @@ import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.Fx;
 import javafx.beans.value.ChangeListener;
 import javafx.beans.value.ObservableValue;
+import javafx.css.CssMetaData;
+import javafx.css.Styleable;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.chart.Chart;
@@ -117,6 +121,17 @@ final class ChartSupport {
             return paint(region.getBackground().getFills().getFirst().getFill());
         }
         return "none";
+    }
+
+    /**
+     * Number of CSS properties a chart class declares on top of its super class (static CssMetaData lists, built in
+     * the class initializers).
+     */
+    static int ownCssProperties(List<CssMetaData<? extends Styleable, ?>> own,
+            List<CssMetaData<? extends Styleable, ?>> parent) {
+        Set<String> inherited = new HashSet<>();
+        parent.forEach(m -> inherited.add(m.getProperty()));
+        return (int) own.stream().filter(m -> !inherited.contains(m.getProperty())).count();
     }
 
     static List<Node> lookupAll(Node root, String selector) {
