@@ -122,6 +122,7 @@ public class HtmlEditorPage implements FeaturePage {
                     return null;
                 })
                 .thenCompose(v -> Fx.pulses(10))
+                .thenCompose(v -> WebSupport.stable(editor, 10_000))
                 .thenCompose(v -> Fx.delay(200));
         return root;
     }
