@@ -78,12 +78,13 @@ public class ImagesCanvasPage implements FeaturePage {
 
     @Override
     public Node build() {
-        Image icon = new Image(Fx.resourceUrl("/showcase/images/icon.png"));
-        Image small = new Image(ImagesFormatsPage.DATA_URI);
-        Image smallCopy = new Image(ImagesFormatsPage.DATA_URI);
-        Image photo = new Image(Fx.resourceUrl("/showcase/images/photo.jpg"));
-        Image tile = new Image(Fx.resourceUrl("/showcase/images/tile.png"));
-        Image texture = new Image(Fx.resourceUrl("/showcase/images/texture.png"));
+        ImageLoads loads = new ImageLoads();
+        Image icon = loads.resource("/showcase/images/icon.png", 64, 64);
+        Image small = loads.load("data URI", 8, 8, () -> new Image(ImagesFormatsPage.DATA_URI));
+        Image smallCopy = loads.load("data URI (2)", 8, 8, () -> new Image(ImagesFormatsPage.DATA_URI));
+        Image photo = loads.resource("/showcase/images/photo.jpg", 480, 320);
+        Image tile = loads.resource("/showcase/images/tile.png", 32, 32);
+        Image texture = loads.resource("/showcase/images/texture.png", 256, 256);
 
         Map<String, Canvas> canvases = new LinkedHashMap<>();
         List<Check> checks = new ArrayList<>();
@@ -478,10 +479,11 @@ public class ImagesCanvasPage implements FeaturePage {
         // GraphicsContext state checks
         Canvas probe = new Canvas(10, 10);
         GraphicsContext gc = probe.getGraphicsContext2D();
-        checks.add(Checks.run("defaults: fill, stroke, lineWidth, font, align, baseline", () -> gc.getFill() + ", "
+        checks.add(loads.check());
+        checks.add(Checks.run("defaults: fill stroke width font align vpos", () -> gc.getFill() + ", "
                 + gc.getStroke() + ", " + gc.getLineWidth() + ", " + gc.getFont().getName() + " " + Ui.num(gc.getFont()
                         .getSize()) + ", " + gc.getTextAlign() + ", " + gc.getTextBaseline()));
-        checks.add(Checks.expect("save/set/restore, then translate rotate scale",
+        checks.add(Checks.expect("save/restore; translate rotate scale",
                 "0x000000ff, 1.0, SRC_OVER, IDENTITY / [0.0, -3.0, 10.0; 2.0, 0.0, 5.0]", () -> {
                     gc.save();
                     gc.setFill(Color.RED);
@@ -523,19 +525,18 @@ public class ImagesCanvasPage implements FeaturePage {
             WritableImage clip = canvases.get("clip() circle, restore").snapshot(null, null);
             WritableImage pixels = canvases.get("getPixelWriter()").snapshot(null, null);
             WritableImage smoothing = canvases.get("imageSmoothing true, false").snapshot(null, null);
-            all.add(Checks.expect("fillRect / roundRect / oval interior", "#FF42A5F5, #FF66BB6A, #FFFFA726",
-                    () -> argb(shapes, 28, 23) + ", " + argb(shapes, 76, 23) + ", " + argb(shapes, 124, 23)));
-            all.add(Checks.expect("MULTIPLY C×M, C×M×Y / SCREEN R+G, R+G+B", "#FF0000FF, #FF000000, #FFFFFF00, #FFFFFFFF",
+            all.add(Checks.expect("rect/roundRect/oval, PixelWriter pixels",
+                    "#FF42A5F5 #FF66BB6A #FFFFA726 / #FF000080 #FFFFFFFF #FF7B1FA2",
+                    () -> argb(shapes, 28, 23) + " " + argb(shapes, 76, 23) + " " + argb(shapes, 124, 23) + " / "
+                            + argb(pixels, 6, 8) + " " + argb(pixels, 85, 21) + " " + argb(pixels, 91, 21)));
+            all.add(Checks.expect("MULTIPLY C×M, C×M×Y / SCREEN R+G, RGB", "#FF0000FF, #FF000000, #FFFFFF00, #FFFFFFFF",
                     () -> argb(blend, 33, 24) + ", " + argb(blend, 35, 40) + ", " + argb(blend, 109, 24) + ", "
                             + argb(blend, 111, 40)));
-            all.add(Checks.run("alpha 1/.6/.3, clip out/in/after, smoothing on/off", () -> String.join(", ",
-                    argb(alpha, 28, 24), argb(alpha, 76, 24), argb(alpha, 124, 24)) + " / " + String.join(", ",
-                            argb(clip, 140, 88), argb(clip, 76, 48), argb(clip, 10, 10)) + " / " + String.join(", ",
+            all.add(Checks.run("alpha 1/.6/.3, clip out/in/after, smoothing", () -> String.join(" ",
+                    argb(alpha, 28, 24), argb(alpha, 76, 24), argb(alpha, 124, 24)) + " / " + String.join(" ",
+                            argb(clip, 140, 88), argb(clip, 76, 48), argb(clip, 10, 10)) + " / " + String.join(" ",
                                     argb(smoothing, 36, 20), argb(smoothing, 110, 20), argb(smoothing, 20, 42),
                                     argb(smoothing, 94, 42))));
-            all.add(Checks.expect("getPixelWriter setArgb (6,8) / setPixels (85,21) (91,21)",
-                    "#FF000080, #FFFFFFFF, #FF7B1FA2",
-                    () -> argb(pixels, 6, 8) + ", " + argb(pixels, 85, 21) + ", " + argb(pixels, 91, 21)));
             checksHolder.getChildren().setAll(Checks.view("GraphicsContext state and rendered pixels", all));
         });
         root.getProperties().put(READY, ready);
