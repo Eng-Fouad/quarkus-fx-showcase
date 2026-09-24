@@ -23,11 +23,6 @@
     -fx-text-fill: #6a7682;
 }
 
-.mono {
-    -fx-font-family: "Menlo", "Monospaced";
-    -fx-font-size: 11px;
-}
-
 /* compact checks tables */
 .group-page .section-title {
     -fx-font-size: 13px;
@@ -118,8 +113,8 @@
     -fx-text-fill: #90a4ae;
 }
 
+/* monospaced : the family of the operating system is set from code (-fx-font-family takes a single family) */
 .event-line {
-    -fx-font-family: "Menlo", "Monospaced";
     -fx-font-size: 10.5px;
     -fx-text-fill: #37474f;
 }
@@ -150,8 +145,8 @@
     -fx-border-radius: 4;
 }
 
+/* monospaced, like .event-line */
 .probe-value {
-    -fx-font-family: "Menlo", "Monospaced";
     -fx-font-size: 9.5px;
     -fx-text-fill: #2e4a3a;
 }

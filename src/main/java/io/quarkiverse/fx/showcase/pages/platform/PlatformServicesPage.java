@@ -20,6 +20,7 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
@@ -59,6 +60,9 @@ public class PlatformServicesPage implements FeaturePage {
     private static final String CUSTOM_TEXT = "application/x-quarkus-fx-showcase-text";
     private static final String CUSTOM_BYTES = "application/x-quarkus-fx-showcase-bytes";
 
+    /** The families JavaFX always lists, installed fonts or not. */
+    private static final Set<String> LOGICAL_FAMILIES = Set.of("System", "Serif", "SansSerif", "Monospaced");
+
     @Override
     public String id() {
         return "platform-services";
@@ -88,7 +92,8 @@ public class PlatformServicesPage implements FeaturePage {
     }
 
     /**
-     * Every Color valued entry of the platform preferences map (macOS NSColor system colors).
+     * Every Color valued entry of the platform preferences map (macOS.NSColor.*, Windows.SysColor.* / Windows.UIColor.*
+     * or GTK.* colors, depending on the operating system).
      */
     private VBox preferenceColors() {
         Platform.Preferences preferences = Platform.getPreferences();
@@ -110,13 +115,20 @@ public class PlatformServicesPage implements FeaturePage {
         }
         List<Check> checks = List.of(Check.info("Color valued preferences", keys.size() + " of " + preferences.size()),
                 Check.info("Other preferences", new TreeSet<>(preferences.keySet()).stream()
-                        // the network path state (reduced data) is already shown, and may change between runs
-                        .filter(key -> !(preferences.get(key) instanceof Color) && !key.contains("NWPathMonitor"))
+                        // the network state (reduced data) is already shown, and may change between runs
+                        .filter(key -> !(preferences.get(key) instanceof Color) && !isNetworkState(key))
                         .map(key -> key + "=" + preferenceValue(preferences.get(key))).collect(Collectors.joining(", "))));
         VBox box = PlatformUi.demo("Platform.getPreferences() : " + keys.size() + " Color entries of " + preferences.size()
                 + " (sorted keys)", grid);
         Checks.attach(box, checks);
         return PlatformUi.width(box, PlatformUi.CONTENT_WIDTH);
+    }
+
+    /**
+     * The preferences behind {@code reducedData} : macOS NWPathMonitor, Windows NetworkInformation, GTK network_metered.
+     */
+    private static boolean isNetworkState(String key) {
+        return key.contains("NWPathMonitor") || key.contains("NetworkInformation") || key.contains("network_metered");
     }
 
     // ------------------------------------------------------------------ clipboard
@@ -131,7 +143,7 @@ public class PlatformServicesPage implements FeaturePage {
         Image original = new Image(Fx.resourceUrl("/showcase/images/icon.png"));
         ImageView readBack = new ImageView();
         Clipboard clipboard = Clipboard.getSystemClipboard();
-        String saved = clipboard.hasString() ? clipboard.getString() : null;
+        String saved = savedText(clipboard, checks);
         DataFormat customText = format(CUSTOM_TEXT);
         DataFormat customBytes = format(CUSTOM_BYTES);
         try {
@@ -142,11 +154,13 @@ public class PlatformServicesPage implements FeaturePage {
             content.putImage(original);
             content.put(customText, "custom payload ✓");
             content.put(customBytes, ByteBuffer.wrap("raw bytes".getBytes(StandardCharsets.UTF_8)));
-            checks.add(Checks.expect("setContent (6 formats)", true, () -> clipboard.setContent(content)));
-            checks.add(Checks.expect("getString()", "Quarkus FX clipboard", clipboard::getString));
-            checks.add(Checks.expect("getHtml()", "<b>bold</b> and <i>italic</i>", clipboard::getHtml));
-            checks.add(Checks.expect("getUrl()", "https://quarkus.io/", clipboard::getUrl));
-            checks.add(Checks.run("getImage() round trip", () -> {
+            // the system clipboard is native (and shared with other processes) : the round trips are only failures on
+            // macOS, where they were verified (see PlatformUi.expectOnMac)
+            checks.add(PlatformUi.expectOnMac("setContent (6 formats)", true, () -> clipboard.setContent(content)));
+            checks.add(PlatformUi.expectOnMac("getString()", "Quarkus FX clipboard", clipboard::getString));
+            checks.add(PlatformUi.expectOnMac("getHtml()", "<b>bold</b> and <i>italic</i>", clipboard::getHtml));
+            checks.add(PlatformUi.expectOnMac("getUrl()", "https://quarkus.io/", clipboard::getUrl));
+            checks.add(PlatformUi.runOnMac("getImage() round trip", () -> {
                 Image image = clipboard.getImage();
                 if (image == null) {
                     throw new IllegalStateException("no image read back");
@@ -155,9 +169,9 @@ public class PlatformServicesPage implements FeaturePage {
                 return (int) image.getWidth() + "x" + (int) image.getHeight() + ", identical pixels "
                         + identicalPixels(original, image) + "/" + (int) (original.getWidth() * original.getHeight());
             }));
-            checks.add(Checks.expect("custom DataFormat (serialized String)", "custom payload ✓",
+            checks.add(PlatformUi.expectOnMac("custom DataFormat (serialized String)", "custom payload ✓",
                     () -> clipboard.getContent(customText)));
-            checks.add(Checks.expect("custom DataFormat (ByteBuffer)", "raw bytes", () -> {
+            checks.add(PlatformUi.expectOnMac("custom DataFormat (ByteBuffer)", "raw bytes", () -> {
                 Object value = clipboard.getContent(customBytes);
                 if (value instanceof ByteBuffer buffer) {
                     byte[] bytes = new byte[buffer.remaining()];
@@ -166,7 +180,7 @@ public class PlatformServicesPage implements FeaturePage {
                 }
                 return String.valueOf(value);
             }));
-            checks.add(Checks.expect("hasContent / content types", "string html url image custom-text custom-bytes", () -> {
+            checks.add(PlatformUi.expectOnMac("hasContent / content types", "string html url image custom-text custom-bytes", () -> {
                 Set<DataFormat> types = clipboard.getContentTypes();
                 List<String> present = new ArrayList<>();
                 Map<String, DataFormat> expected = new java.util.LinkedHashMap<>();
@@ -185,12 +199,16 @@ public class PlatformServicesPage implements FeaturePage {
             }));
         } finally {
             // give the user back the text that was on the clipboard
-            if (saved != null) {
-                ClipboardContent restore = new ClipboardContent();
-                restore.putString(saved);
-                clipboard.setContent(restore);
-            } else {
-                clipboard.clear();
+            try {
+                if (saved != null) {
+                    ClipboardContent restore = new ClipboardContent();
+                    restore.putString(saved);
+                    clipboard.setContent(restore);
+                } else {
+                    clipboard.clear();
+                }
+            } catch (Throwable t) {
+                checks.add(Check.info("restore the clipboard text", Checks.describe(t)));
             }
         }
 
@@ -200,6 +218,18 @@ public class PlatformServicesPage implements FeaturePage {
         VBox box = PlatformUi.demo("Clipboard.getSystemClipboard() : put 6 formats, read them back (text restored)",
                 images, PlatformUi.checks(null, checks, 190, width - 18));
         return PlatformUi.width(box, width);
+    }
+
+    /**
+     * The text on the clipboard before this page uses it (null if none, or if it cannot be read).
+     */
+    private static String savedText(Clipboard clipboard, List<Check> checks) {
+        try {
+            return clipboard.hasString() ? clipboard.getString() : null;
+        } catch (Throwable t) {
+            checks.add(Check.info("read the clipboard text", Checks.describe(t)));
+            return null;
+        }
     }
 
     private static VBox labelled(String caption, Node node) {
@@ -258,7 +288,9 @@ public class PlatformServicesPage implements FeaturePage {
                 .map(KeyCombination::getDisplayText).collect(Collectors.joining("  "))));
         checks.add(Checks.expect("KeyCombination.valueOf(...).getName()", "Shift+Shortcut+A",
                 () -> KeyCombination.valueOf("shortcut+shift+a").getName()));
-        checks.add(Checks.run("Shortcut+C matches Meta+C / Ctrl+C", () -> {
+        // the Shortcut modifier is Meta (command) on macOS, Ctrl on Windows and Linux
+        checks.add(Checks.expect("Shortcut+C matches Meta+C / Ctrl+C", Platforms.pick("true / false", "false / true",
+                "false / true"), () -> {
             KeyCombination copy = KeyCombination.keyCombination("Shortcut+C");
             KeyEvent meta = new KeyEvent(KeyEvent.KEY_PRESSED, "c", "c", KeyCode.C, false, false, false, true);
             KeyEvent ctrl = new KeyEvent(KeyEvent.KEY_PRESSED, "c", "c", KeyCode.C, false, true, false, false);
@@ -282,14 +314,28 @@ public class PlatformServicesPage implements FeaturePage {
         Screen primary = Screen.getPrimary();
         Rectangle2D bounds = primary.getBounds();
         Rectangle2D visual = primary.getVisualBounds();
-        // the visual bounds follow the Dock and the menu bar : only their consistency is checked
+        // the visual bounds follow the Dock and the menu bar (the taskbar, the desktop panels) : only their consistency is
+        // checked. With a fractional scale (Windows, Linux) the logical bounds may be rounded differently : 1 px margin
         checks.add(Check.info("Screen bounds", rect(bounds)));
+        Rectangle2D container = Platforms.isMac() ? bounds
+                : new Rectangle2D(bounds.getMinX() - 1, bounds.getMinY() - 1, bounds.getWidth() + 2, bounds.getHeight() + 2);
         checks.add(Checks.expect("visual bounds inside bounds, not empty", true,
-                () -> bounds.contains(visual) && visual.getWidth() > 0 && visual.getHeight() > 0));
+                () -> container.contains(visual) && visual.getWidth() > 0 && visual.getHeight() > 0));
         checks.add(Check.info("dpi, output scale, screens", primary.getDpi() + " dpi, " + primary.getOutputScaleX()
                 + "x" + primary.getOutputScaleY() + ", " + Screen.getScreens().size() + " screen(s)"));
-        checks.add(Checks.expect("getScreensForRectangle(visual bounds)", 1,
-                () -> Screen.getScreensForRectangle(visual).size()));
+        if (Platforms.isMac()) {
+            checks.add(Checks.expect("getScreensForRectangle(visual bounds)", 1,
+                    () -> Screen.getScreensForRectangle(visual).size()));
+        } else {
+            // the logical layout of screens with different scales is platform specific : at least the primary screen
+            checks.add(Checks.run("getScreensForRectangle(visual bounds)", () -> {
+                int count = Screen.getScreensForRectangle(visual).size();
+                if (count < 1) {
+                    throw new IllegalStateException("no screen for the visual bounds of the primary screen");
+                }
+                return count;
+            }));
+        }
 
         // a scaled drawing of the primary screen with its size
         double scale = 150 / bounds.getWidth();
@@ -353,9 +399,15 @@ public class PlatformServicesPage implements FeaturePage {
         // only the installed fonts are counted, so that this page does not depend on the pages shown before it
         checks.add(Checks.run("Font.getFamilies() / getFontNames()", () -> {
             List<String> families = Font.getFamilies();
-            if (!families.containsAll(List.of("Helvetica", "Menlo", "Times New Roman"))) {
-                throw new IllegalStateException("Helvetica, Menlo or Times New Roman missing in " + families.size()
-                        + " families");
+            // families installed with every macOS / Windows ; no family is common to all Linux distributions
+            List<String> required = Platforms.pick(List.of("Helvetica", "Menlo", "Times New Roman"),
+                    List.of("Arial", "Consolas", "Times New Roman"), List.of());
+            if (!families.containsAll(required)) {
+                throw new IllegalStateException(String.join(", ", required.subList(0, required.size() - 1)) + " or "
+                        + required.getLast() + " missing in " + families.size() + " families");
+            }
+            if (families.stream().filter(PlatformServicesPage::isSystemFont).allMatch(LOGICAL_FAMILIES::contains)) {
+                throw new IllegalStateException("no installed font family, only the logical ones");
             }
             return families.stream().filter(PlatformServicesPage::isSystemFont).count() + " system families, "
                     + Font.getFontNames().stream().filter(PlatformServicesPage::isSystemFont).count()
