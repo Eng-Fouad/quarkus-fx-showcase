@@ -3,7 +3,10 @@ package io.quarkiverse.fx.showcase.pages.images;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 import jakarta.inject.Singleton;
@@ -19,6 +22,7 @@ import javafx.scene.Group;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.SnapshotParameters;
+import javafx.scene.SnapshotResult;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ProgressBar;
@@ -83,6 +87,10 @@ public class ImagesPixelsPage implements FeaturePage {
     public Node build() {
         List<Check> checks = new ArrayList<>();
         List<Node> cells = new ArrayList<>();
+        ImageLoads loads = new ImageLoads();
+        Image photo = loads.resource("/showcase/images/photo.jpg", 480, 320);
+        Image png = loads.resource("/showcase/images/pattern.png", 256, 256);
+        Image gif = loads.resource("/showcase/images/pattern.gif", 256, 256);
 
         // 1. setArgb gradient
         WritableImage gradient = new WritableImage(W, H);
@@ -168,12 +176,10 @@ public class ImagesPixelsPage implements FeaturePage {
                 byteBufferImage))));
 
         // 7. copy of a region of the JPEG
-        Image photo = new Image(Fx.resourceUrl("/showcase/images/photo.jpg"));
         WritableImage crop = new WritableImage(photo.getPixelReader(), 150, 110, W, H);
         cells.add(cell("WritableImage(reader, rect)", new ImageView(crop)));
 
         // 8. copy of the PNG, inverted
-        Image png = new Image(Fx.resourceUrl("/showcase/images/pattern.png"));
         WritableImage inverted = new WritableImage(png.getPixelReader(), (int) png.getWidth(), (int) png.getHeight());
         PixelReader ir = inverted.getPixelReader();
         PixelWriter iw = inverted.getPixelWriter();
@@ -269,8 +275,15 @@ public class ImagesPixelsPage implements FeaturePage {
         effects.setStyle("-fx-padding: 8;");
         SnapshotParameters params3 = new SnapshotParameters();
         params3.setFill(Color.WHITE);
-        WritableImage effectsImage = effects.snapshot(params3, null);
-        cells.add(cell("snapshot of nodes with effects", new ImageView(effectsImage)));
+        // asynchronous variant : the callback runs once the next pulse rendered the snapshot
+        ImageView effectsView = new ImageView();
+        CompletableFuture<SnapshotResult> effectsSnapshot = new CompletableFuture<>();
+        effects.snapshot(result -> {
+            effectsView.setImage(result.getImage());
+            effectsSnapshot.complete(result);
+            return null;
+        }, params3, null);
+        cells.add(cell("snapshot(callback), effects", effectsView));
 
         GridPane grid = new GridPane();
         grid.setHgap(8);
@@ -285,18 +298,17 @@ public class ImagesPixelsPage implements FeaturePage {
                         Ui.argb(gradientArgb(159, 99))),
                 () -> String.join(", ", argb(gradient, 0, 0), argb(gradient, 159, 0), argb(gradient, 0, 99),
                         argb(gradient, 159, 99))));
-        checks.add(Checks.run("setColor read back getColor(0,0) / (80,99)", () -> colors.getPixelReader().getColor(0, 0)
-                + " / " + colors.getPixelReader().getColor(80, 99)));
-        checks.add(Checks.run("BGRA_PRE block (120,70) ARGB / premultiplied", () -> {
+        checks.add(Checks.run("getColor (0,0) (80,99), BGRA_PRE (120,70)", () -> {
             int[] pre = new int[1];
             colors.getPixelReader().getPixels(120, 70, 1, 1, PixelFormat.getIntArgbPreInstance(), pre, 0, 1);
-            return argb(colors, 120, 70) + " / " + Ui.argb(pre[0]);
+            return colors.getPixelReader().getColor(0, 0) + " " + colors.getPixelReader().getColor(80, 99) + " / ARGB "
+                    + argb(colors, 120, 70) + ", ARGB_PRE " + Ui.argb(pre[0]);
         }));
-        checks.add(Checks.expect("indexed palette read back (0,0) (20,0) (0,25) (100,0)",
+        checks.add(Checks.expect("BYTE_INDEXED (0,0) (20,0) (0,25) (100,0)",
                 String.join(", ", Ui.argb(PALETTE[0]), Ui.argb(PALETTE[1]), Ui.argb(PALETTE[2]), Ui.argb(PALETTE[5])),
                 () -> String.join(", ", argb(indexed, 0, 0), argb(indexed, 20, 0), argb(indexed, 0, 25),
                         argb(indexed, 100, 0))));
-        checks.add(Checks.expect("read back: int[] pattern / crop copy", "true / true", () -> {
+        checks.add(Checks.expect("read back = written: int[] / crop copy", "true / true", () -> {
             int[] back = new int[W * H];
             ints.getPixelReader().getPixels(0, 0, W, H, PixelFormat.getIntArgbInstance(), back, 0, W);
             boolean same = true;
@@ -309,23 +321,32 @@ public class ImagesPixelsPage implements FeaturePage {
         }));
         checks.add(Checks.run("inverted pattern (10,10) (128,128)", () -> argb(png, 10, 10) + "→" + argb(inverted, 10, 10)
                 + ", " + argb(png, 128, 128) + "→" + argb(inverted, 128, 128)));
-        checks.add(Checks.run("snapshots: group (10,10) (45,35) / transformed (0,0) / scene / effects",
-                () -> ImagesFormatsPage.size(snapshot) + " " + argb(snapshot, 10, 10) + " " + argb(snapshot, 45, 35)
-                        + " / " + ImagesFormatsPage.size(transformed) + " " + argb(transformed, 0, 0) + " / "
-                        + ImagesFormatsPage.size(sceneImage) + " / " + ImagesFormatsPage.size(effectsImage)));
-        checks.add(Checks.run("grayscale (0,0) (80,50) / mirrored (0,0) = png (191,78)", () -> argb(grayscale, 0, 0) + " "
+        checks.add(Checks.run("snapshots: group / transformed / scene", () -> ImagesFormatsPage.size(snapshot) + " "
+                + argb(snapshot, 10, 10) + " " + argb(snapshot, 45, 35) + " / " + ImagesFormatsPage.size(transformed)
+                + " " + argb(transformed, 0, 0) + " / " + ImagesFormatsPage.size(sceneImage) + " " + argb(sceneImage, 2,
+                        2)));
+        checks.add(Checks.run("gray (0,0) (80,50), mirror (0,0)=png(191,78)", () -> argb(grayscale, 0, 0) + " "
                 + argb(grayscale, 80, 50) + " / " + argb(mirrored, 0, 0) + " = " + argb(png, 191, 78)));
-        checks.add(Checks.run("pixel formats png/jpg/gif/writable/buffers/snapshot", () -> String.join(", ",
-                png.getPixelReader().getPixelFormat().getType().name(),
-                photo.getPixelReader().getPixelFormat().getType().name(),
-                new Image(Fx.resourceUrl("/showcase/images/pattern.gif")).getPixelReader().getPixelFormat().getType().name(),
-                gradient.getPixelReader().getPixelFormat().getType().name(),
-                bufferImage.getPixelReader().getPixelFormat().getType().name(),
-                byteBufferImage.getPixelReader().getPixelFormat().getType().name(),
-                snapshot.getPixelReader().getPixelFormat().getType().name())));
-        checks.add(Checks.run("PixelFormat writable / premultiplied (INT_ARGB, BYTE_RGB, INDEXED)", () -> String.join(", ",
+        checks.add(Checks.run("PixelReader.getPixelFormat()", () -> {
+            Map<String, List<String>> kinds = new LinkedHashMap<>();
+            Map<String, Image> images = new LinkedHashMap<>();
+            images.put("png", png);
+            images.put("jpg", photo);
+            images.put("gif", gif);
+            images.put("writable", gradient);
+            images.put("IntBuffer", bufferImage);
+            images.put("ByteBuffer", byteBufferImage);
+            images.put("snapshot", snapshot);
+            images.forEach((kind, image) -> kinds.computeIfAbsent(image.getPixelReader().getPixelFormat().getType()
+                    .name(), k -> new ArrayList<>()).add(kind));
+            List<String> parts = new ArrayList<>();
+            kinds.forEach((format, names) -> parts.add(String.join(" ", names) + ": " + format));
+            return String.join(" / ", parts);
+        }));
+        checks.add(Checks.run("PixelFormat isWritable / isPremultiplied", () -> String.join(", ",
                 flags(PixelFormat.getIntArgbInstance()), flags(PixelFormat.getByteRgbInstance()),
                 flags(PixelFormat.createByteIndexedInstance(PALETTE)))));
+        checks.add(loads.check());
 
         VBox checksHolder = new VBox(Checks.view("Pixel read back", checks));
         VBox root = new VBox(8, grid, checksHolder);
@@ -364,13 +385,21 @@ public class ImagesPixelsPage implements FeaturePage {
                     }
                 }
             }
-        }).thenCompose(v -> Fx.pulses(2)).thenRun(() -> {
-            List<Check> all = new ArrayList<>(checks);
-            all.add(Checks.run("after update: PixelBuffers (80,50) (0,0) (30,30) / live (80,50) (8,50)",
-                    () -> argb(bufferImage, 80, 50) + " " + argb(bufferImage, 0, 0) + " " + argb(byteBufferImage, 30, 30)
-                            + " / " + argb(live, 80, 50) + " " + argb(live, 8, 50)));
-            checksHolder.getChildren().setAll(Checks.view("Pixel read back", all));
-        });
+        }).thenCompose(v -> Fx.pulses(2))
+                .thenCompose(v -> Fx.timeout(effectsSnapshot, 10_000, "snapshot callback")
+                        .handle((result, error) -> error == null ? Check.pass("snapshot(callback): size, (20,20)",
+                                ImagesFormatsPage.size(result.getImage()) + ", " + argb(result.getImage(), 20, 20)
+                                        + ", source " + result.getSource().getClass().getSimpleName())
+                                : Check.fail("snapshot(callback): size, (20,20)", Checks.describe(error))))
+                .thenAccept(snapshotCheck -> {
+                    List<Check> all = new ArrayList<>(checks);
+                    all.add(snapshotCheck);
+                    all.add(Checks.run("after update: buffers / live image", () -> "int (80,50) "
+                            + argb(bufferImage, 80, 50) + " (0,0) " + argb(bufferImage, 0, 0) + ", byte (30,30) "
+                            + argb(byteBufferImage, 30, 30) + " / live (80,50) " + argb(live, 80, 50) + " (8,50) "
+                            + argb(live, 8, 50)));
+                    checksHolder.getChildren().setAll(Checks.view("Pixel read back", all));
+                });
         root.getProperties().put(READY, ready);
         return root;
     }
