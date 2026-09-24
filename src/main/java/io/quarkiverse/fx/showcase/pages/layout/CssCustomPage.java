@@ -41,6 +41,7 @@ import javafx.scene.control.Control;
 public class CssCustomPage implements FeaturePage {
 
     private static final PseudoClass ON = PseudoClass.getPseudoClass("on");
+    private static final String SNAPSHOT_ERROR = "layout.snapshot-error";
     private static final double COLUMN = 333;
     private static final double AREA_HEIGHT = 440;
     private static final int SCENE_WIDTH = 313;
@@ -85,17 +86,19 @@ public class CssCustomPage implements FeaturePage {
         inline.setStyle("-badge-color: #8e24aa; -badge-shape: diamond; -badge-size: 52; -badge-ring-width: 3;");
         GridPane badges = new GridPane(6, 4);
         badges.setAlignment(Pos.CENTER);
-        Badge[] all = { ua, primary, success, warning, outlined, large, lookup, alert, inline };
+        Badge ringSkin = badge("8", "ring-skin");
+        Badge[] all = { ua, primary, success, warning, outlined, large, lookup, alert, inline, ringSkin };
         String[] notes = { "UA stylesheet", ".primary", ".success", ".warning", ".outlined", ".primary.large", ".lookup (derive)",
-                ":alert", "inline style" };
+                ":alert", "inline style", "-fx-skin (CSS)" };
         for (int i = 0; i < all.length; i++) {
             Label note = new Label(notes[i]);
             note.getStyleClass().add("note");
             VBox cell = new VBox(2, all[i], note);
             cell.setAlignment(Pos.BOTTOM_CENTER);
-            cell.setMinSize(96, 88);
-            cell.setPrefSize(96, 88);
-            badges.add(cell, i % 3, i / 3);
+            cell.setMinSize(96, 82);
+            cell.setPrefSize(96, 82);
+            // the last one, alone on its row, is centered
+            badges.add(cell, i == 9 ? 1 : i % 3, i / 3);
         }
         VBox legend = new VBox(1);
         for (String line : List.of("StyleablePropertyFactory: -badge-color <color>, -badge-size <number>,",
@@ -115,7 +118,7 @@ public class CssCustomPage implements FeaturePage {
                 { "tr-translate", "-fx-translate-x 300ms ease-in-out" }, { "tr-rotate", "-fx-rotate 300ms steps(3, jump-end)" },
                 { "tr-scale", "-fx-scale-x/y 300ms cubic-bezier()" }, { "tr-delayed", "border 200ms delay 100ms, text step-end" },
                 { "tr-all", "all 300ms ease-in" } };
-        VBox transitionRows = new VBox(4);
+        VBox transitionRows = new VBox(5);
         List<Label> animated = new ArrayList<>();
         // property -> RUN, START, END, CANCEL counts
         Map<String, int[]> events = new TreeMap<>();
@@ -139,9 +142,9 @@ public class CssCustomPage implements FeaturePage {
             // the end state may be translated, rotated or scaled : room around the box
             StackPane slot = new StackPane(after);
             slot.setAlignment(Pos.CENTER_LEFT);
-            slot.setMinSize(136, 40);
-            slot.setPrefSize(136, 40);
-            slot.setMaxSize(136, 40);
+            slot.setMinSize(136, 48);
+            slot.setPrefSize(136, 48);
+            slot.setMaxSize(136, 48);
             HBox row = new HBox(10, before, slot, spec);
             row.setAlignment(Pos.CENTER_LEFT);
             transitionRows.getChildren().add(row);
@@ -175,7 +178,8 @@ public class CssCustomPage implements FeaturePage {
             // the transitions only run when a state changes after the first CSS pass
             replay.setSelected(true);
             animated.forEach(label -> label.pseudoClassStateChanged(ON, true));
-            return Fx.delay(900).thenRun(() -> {
+            // all transitions last at most 350ms (delay included) : wait for their END events, whatever the load
+            return Fx.delay(450).thenCompose(v -> Kit.until(() -> ended(events), 600)).thenRun(() -> {
                 List<Check> left = new ArrayList<>();
                 left.add(Checks.expect("CssMetaData count (Control + 6)", Control.getClassCssMetaData().size() + 6,
                         () -> Badge.getClassCssMetaData().size()));
@@ -184,6 +188,8 @@ public class CssCustomPage implements FeaturePage {
                 left.add(Check.info(".outlined / .large", describe(outlined) + " / " + describe(large)));
                 left.add(Check.info(".lookup / :alert", describe(lookup) + " / " + describe(alert)));
                 left.add(Check.info("inline", describe(inline)));
+                left.add(Checks.expect("skins (default · -fx-skin from CSS)", "BadgeSkin · BadgeRingSkin",
+                        () -> skinName(ua) + " · " + skinName(ringSkin)));
                 left.add(Check.info("-badge-color origins", ua.colorOrigin() + ", " + primary.colorOrigin() + ", "
                         + inline.colorOrigin()));
                 List<Check> right = new ArrayList<>();
@@ -206,6 +212,8 @@ public class CssCustomPage implements FeaturePage {
                         Kit.fill(schemeRoots.get(0)) + " / " + Kit.fill(schemeRoots.get(1))));
                 right.add(Check.info("indicators light", indicators(schemeRoots.get(0))));
                 right.add(Check.info("indicators dark", indicators(schemeRoots.get(1))));
+                right.add(Checks.expect("scene snapshots (light, dark)", "313x184, 313x184",
+                        () -> snapshotSize(light) + ", " + snapshotSize(dark)));
                 right.add(Check.info("scene preferences", scenes.stream().map(s -> s.getPreferences().getColorScheme() + "/"
                         + s.getPreferences().isReducedMotion()).collect(Collectors.joining(", "))));
                 right.add(Kit.cssErrorsCheck("CSS errors on this page", cssMark));
@@ -215,10 +223,27 @@ public class CssCustomPage implements FeaturePage {
         return root;
     }
 
+    /**
+     * {@code true} once transitions ran and every one of them ended or was canceled.
+     */
+    private static boolean ended(Map<String, int[]> events) {
+        int run = 0;
+        int finished = 0;
+        for (int[] counts : events.values()) {
+            run += counts[0];
+            finished += counts[2] + counts[3];
+        }
+        return run > 0 && finished >= run;
+    }
+
     private static Badge badge(String text, String... styleClasses) {
         Badge badge = new Badge(text);
         badge.getStyleClass().addAll(styleClasses);
         return badge;
+    }
+
+    private static String skinName(Badge badge) {
+        return badge.getSkin() == null ? "no skin" : badge.getSkin().getClass().getSimpleName();
     }
 
     private static String describe(Badge badge) {
@@ -265,10 +290,28 @@ public class CssCustomPage implements FeaturePage {
         scene.getPreferences().setColorScheme(colorScheme);
         scene.getPreferences().setReducedMotion(reducedMotion);
         scene.getStylesheets().addAll(Kit.css("common.css"), Kit.css("scheme.css"));
-        WritableImage image = scene.snapshot(null);
         roots.add(schemeRoot);
         scenes.add(scene);
-        return new ImageView(image);
+        ImageView view = new ImageView();
+        view.setFitWidth(SCENE_WIDTH);
+        view.setFitHeight(SCENE_HEIGHT);
+        // a rendering failure of the off-screen scene is reported by the "scene snapshots" check, not as a build error
+        try {
+            WritableImage image = scene.snapshot(null);
+            view.setImage(image);
+        } catch (Throwable t) {
+            view.getProperties().put(SNAPSHOT_ERROR, Checks.describe(t));
+        }
+        return view;
+    }
+
+    private static String snapshotSize(ImageView view) {
+        Object error = view.getProperties().get(SNAPSHOT_ERROR);
+        if (error != null) {
+            return String.valueOf(error);
+        }
+        return view.getImage() == null ? "no image"
+                : (int) view.getImage().getWidth() + "x" + (int) view.getImage().getHeight();
     }
 
     private static Label indicator(String text, String styleClass) {
