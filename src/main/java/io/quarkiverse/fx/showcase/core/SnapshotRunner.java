@@ -88,6 +88,8 @@ public class SnapshotRunner {
                         .orElse(true))
                 .toList();
         LOG.infof("Snapshot run of %d pages into %s", selected.size(), out);
+        // no hover effect, whatever the mouse position
+        view.pageFrame().setMouseTransparent(true);
 
         List<Map<String, Object>> results = new ArrayList<>();
         CompletionStage<Void> chain = Fx.pulses(5)
