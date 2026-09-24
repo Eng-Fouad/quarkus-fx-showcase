@@ -14,6 +14,8 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms;
+import io.quarkiverse.fx.showcase.core.Platforms.Families;
 import javafx.geometry.NodeOrientation;
 import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
@@ -79,32 +81,48 @@ public class TextInternationalPage implements FeaturePage {
         String kufiFamily = LoadedFonts.family(kufi, "Droid Arabic Kufi");
         checks.add(Check.of("DroidKufi loadFont(InputStream)", kufi != null, LoadedFonts.describeKufi()));
 
+        // system fonts : on macOS Geeza Pro, Arial Hebrew, Hiragino Sans GB, PingFang SC, Hiragino Sans,
+        // Apple SD Gothic Neo, Kohinoor Devanagari, Thonburi and Apple Color Emoji, elsewhere installed equivalents
+        String arabicFamily = Families.arabic();
+        String hebrewFamily = Families.hebrew();
+        String chineseFamily = Families.chinese();
+        String chinese2Family = PageFonts.chinese2();
+        String japaneseFamily = Families.japanese();
+        String koreanFamily = Families.korean();
+        String hindiFamily = Families.devanagari();
+        String thaiFamily = Families.thai();
+        String emojiFamily = Families.emoji();
+
         // Row 1 : Arabic
         HBox arabic = new HBox(8,
                 Ui.grow(scriptTile("Arabic, " + kufiFamily + " (application font)", kufiFamily, 24, ARABIC, ARABIC_2)),
-                Ui.grow(scriptTile("Arabic, Geeza Pro (system font)", "Geeza Pro", 24, ARABIC, ARABIC_2)),
+                Ui.grow(scriptTile("Arabic, " + arabicFamily + " (system font)", arabicFamily, 24, ARABIC, ARABIC_2)),
                 Ui.grow(scriptTile("Arabic, System font (fallback)", "System", 24, ARABIC, ARABIC_2)));
 
         // Row 2 : Hebrew and CJK
+        // PingFang SC is a macOS system font that JavaFX draws with wrong glyphs; elsewhere another Chinese font
+        String chinese2Caption = Platforms.isMac() ? "Font.font(\"PingFang SC\"): wrong glyphs"
+                : "Chinese, " + chinese2Family;
         HBox cjk = new HBox(8,
-                Ui.grow(scriptTile("Hebrew, Arial Hebrew", "Arial Hebrew", 20, HEBREW)),
-                Ui.grow(scriptTile("Chinese, Hiragino Sans GB", "Hiragino Sans GB", 20, CHINESE)),
-                Ui.grow(scriptTile("Font.font(\"PingFang SC\"): wrong glyphs", "PingFang SC", 20, CHINESE)),
-                Ui.grow(scriptTile("Japanese, Hiragino Sans", "Hiragino Sans", 20, JAPANESE)),
-                Ui.grow(scriptTile("Korean, Apple SD Gothic Neo", "Apple SD Gothic Neo", 20, KOREAN)));
+                Ui.grow(scriptTile("Hebrew, " + hebrewFamily, hebrewFamily, 20, HEBREW)),
+                Ui.grow(scriptTile("Chinese, " + chineseFamily, chineseFamily, 20, CHINESE)),
+                Ui.grow(scriptTile(chinese2Caption, chinese2Family, 20, CHINESE)),
+                Ui.grow(scriptTile("Japanese, " + japaneseFamily, japaneseFamily, 20, JAPANESE)),
+                Ui.grow(scriptTile("Korean, " + koreanFamily, koreanFamily, 20, KOREAN)));
 
         // Row 3 : Devanagari, Thai, emoji
         HBox complex = new HBox(8,
-                Ui.grow(scriptTile("Hindi, Kohinoor Devanagari", "Kohinoor Devanagari", 20, HINDI)),
-                Ui.grow(scriptTile("Thai, Thonburi", "Thonburi", 20, THAI)),
-                Ui.grow(scriptTile("Apple Color Emoji; sequences", "Apple Color Emoji", 20, EMOJI, EMOJI_SEQUENCES)),
+                Ui.grow(scriptTile("Hindi, " + hindiFamily, hindiFamily, 20, HINDI)),
+                Ui.grow(scriptTile("Thai, " + thaiFamily, thaiFamily, 20, THAI)),
+                Ui.grow(scriptTile(emojiFamily + "; sequences", emojiFamily, 20, EMOJI, EMOJI_SEQUENCES)),
                 Ui.grow(scriptTile("Emoji, System font (fallback)", "System", 20, EMOJI, EMOJI_SEQUENCES)),
                 Ui.grow(scriptTile("CJK, System font (fallback)", "System", 20, "中文 日本語 한국어")));
 
         // Row 4 : bidirectional text flows
-        TextFlow rtl = bidiFlow(kufiFamily);
+        String mono = Families.mono();
+        TextFlow rtl = bidiFlow(kufiFamily, arabicFamily, mono);
         rtl.setNodeOrientation(NodeOrientation.RIGHT_TO_LEFT);
-        TextFlow ltr = bidiFlow(kufiFamily);
+        TextFlow ltr = bidiFlow(kufiFamily, arabicFamily, mono);
         ltr.setNodeOrientation(NodeOrientation.LEFT_TO_RIGHT);
         HBox bidi = new HBox(8,
                 Ui.grow(Ui.tile("Mixed bidirectional TextFlow, NodeOrientation.RIGHT_TO_LEFT", rtl)),
@@ -134,24 +152,23 @@ public class TextInternationalPage implements FeaturePage {
 
         // Checks computed on Text nodes (independent of the layout)
         List<String> families = new ArrayList<>();
-        for (String family : List.of("Geeza Pro", "Arial Hebrew", "Hiragino Sans GB", "PingFang SC", "Hiragino Sans",
-                "Apple SD Gothic Neo",
-                "Kohinoor Devanagari", "Thonburi", "Apple Color Emoji")) {
+        for (String family : List.of(arabicFamily, hebrewFamily, chineseFamily, chinese2Family, japaneseFamily,
+                koreanFamily, hindiFamily, thaiFamily, emojiFamily)) {
             String resolved = Font.font(family, 20).getFamily();
             families.add(resolved.equals(family) ? family + " =" : family + "→" + resolved);
         }
         checks.add(Check.info("Font.font(family).getFamily()", String.join(", ", families)));
         checks.add(Checks.run("text widths (ar kufi/ar geeza/he/zh/zh pf/ja/ko)",
-                () -> String.join(" / ", width(kufiFamily, ARABIC), width("Geeza Pro", ARABIC),
-                        width("Arial Hebrew", HEBREW), width("Hiragino Sans GB", CHINESE), width("PingFang SC", CHINESE),
-                        width("Hiragino Sans", JAPANESE),
-                        width("Apple SD Gothic Neo", KOREAN))));
+                () -> String.join(" / ", width(kufiFamily, ARABIC), width(arabicFamily, ARABIC),
+                        width(hebrewFamily, HEBREW), width(chineseFamily, CHINESE), width(chinese2Family, CHINESE),
+                        width(japaneseFamily, JAPANESE),
+                        width(koreanFamily, KOREAN))));
         checks.add(Checks.run("text widths (hi/th/emoji/fallback/sequences)",
-                () -> String.join(" / ", width("Kohinoor Devanagari", HINDI), width("Thonburi", THAI),
-                        width("Apple Color Emoji", EMOJI), width("System", EMOJI), width("System", EMOJI_SEQUENCES))));
+                () -> String.join(" / ", width(hindiFamily, HINDI), width(thaiFamily, THAI),
+                        width(emojiFamily, EMOJI), width("System", EMOJI), width("System", EMOJI_SEQUENCES))));
         checks.add(Checks.run("Arabic Text hitTest(5, 10) / caretShape(0)", () -> {
             Text t = new Text(ARABIC);
-            t.setFont(Font.font("Geeza Pro", 24));
+            t.setFont(Font.font(arabicFamily, 24));
             var hit = t.hitTest(new Point2D(5, 10));
             return hit.getCharIndex() + (hit.isLeading() ? " leading" : " trailing") + " / " + Ui.path(t.caretShape(0,
                     true));
@@ -206,19 +223,19 @@ public class TextInternationalPage implements FeaturePage {
         return Ui.tile(caption, nodes.toArray(Node[]::new));
     }
 
-    private static TextFlow bidiFlow(String kufiFamily) {
+    private static TextFlow bidiFlow(String kufiFamily, String arabicFamily, String mono) {
         Text a = new Text("النص العربي يحتوي على ");
-        a.setFont(Font.font("Geeza Pro", 16));
+        a.setFont(Font.font(arabicFamily, 16));
         Text b = new Text("JavaFX 25");
         b.setFont(Font.font("System", FontWeight.BOLD, 15));
         b.setFill(Color.web("#1565c0"));
         Text c = new Text(" و ");
-        c.setFont(Font.font("Geeza Pro", 16));
+        c.setFont(Font.font(arabicFamily, 16));
         Text d = new Text("Quarkus");
-        d.setFont(Font.font("Menlo", 14));
+        d.setFont(Font.font(mono, 14));
         d.setFill(Color.web("#c62828"));
         Text e = new Text(" مع الرقم 2024، ");
-        e.setFont(Font.font("Geeza Pro", 16));
+        e.setFont(Font.font(arabicFamily, 16));
         Text f = new Text("وخط الكوفي من الموارد.");
         f.setFont(Font.font(kufiFamily, 15));
         f.setFill(Color.web("#2e7d32"));
