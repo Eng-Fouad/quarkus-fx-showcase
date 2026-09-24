@@ -117,7 +117,12 @@ public class HtmlEditorPage implements FeaturePage {
                     && view.getEngine().getDocument() != null
                     && view.getEngine().getDocument().getElementById("editor-marker") != null;
         }, 20_000, "HTMLEditor content")
-                // lets the skin apply its post-load updates (content editable, toolbar state)
+                // the skin creates its toolbar buttons in its first layout pass (not in its constructor) : the load
+                // can complete before it
+                .thenCompose(v -> WebSupport.until(() -> editor.lookup(".html-editor-bold") != null, 10_000,
+                        "HTMLEditor toolbars (first layout of the skin)"))
+                // lets the skin apply its post-load and post-layout updates (content editable, toolbar state, font
+                // family combo filled with Platform.runLater)
                 .thenCompose(v -> Fx.pulses(5))
                 .handle((v, error) -> {
                     state.error = error == null ? null : Checks.describe(WebSupport.unwrap(error));
