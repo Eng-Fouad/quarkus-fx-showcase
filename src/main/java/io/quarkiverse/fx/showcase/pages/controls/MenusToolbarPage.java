@@ -20,6 +20,7 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms;
 import javafx.collections.ListChangeListener;
 import javafx.geometry.Orientation;
 import javafx.geometry.Point2D;
@@ -428,7 +429,9 @@ public class MenusToolbarPage implements FeaturePage {
         custom.setAlignment(Pos.CENTER_LEFT);
         CustomMenuItem customItem = new CustomMenuItem(custom, false);
         Menu appearance = new Menu("Appearance", null, new MenuItem("Light"), new MenuItem("Dark"));
-        MenuItem fullScreen = item("Full screen", "Shortcut+Ctrl+F", null, status);
+        // the full screen convention of each platform : Cmd+Ctrl+F on macOS (elsewhere Shortcut+Ctrl+F is only Ctrl+F,
+        // the usual Find shortcut), F11 on Windows and Linux
+        MenuItem fullScreen = item("Full screen", Platforms.pick("Shortcut+Ctrl+F", "F11", "F11"), null, status);
         return new Menu("View", null, showToolbar, showStatus, new SeparatorMenuItem(), zoom100, zoom150, zoom200,
                 new SeparatorMenuItem(), customItem, appearance, fullScreen);
     }
