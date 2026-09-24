@@ -39,7 +39,8 @@ import javafx.util.Duration;
  * Audio playback : Media / MediaPlayer for WAV, AIFF and M4A (never played, volume 0), AudioClip, AudioEqualizer.
  * <p>
  * AAC (M4A) is decoded by the operating system : where that decoder is optional (see
- * {@link MediaSupport#systemCodecOptional()}), its absence is reported as information, not as a failure.
+ * {@link MediaSupport#systemCodecOptional()}), its absence is reported as information, not as a failure. So is the
+ * absence of an audio output device (see {@link MediaSupport#audioOutputMissing()}) : players need one even muted.
  */
 @Singleton
 public class AudioPage implements FeaturePage {
@@ -114,11 +115,32 @@ public class AudioPage implements FeaturePage {
         }
 
         /**
+         * Whether the media file exists but its player did not become READY.
+         */
+        boolean failed() {
+            return source != null && (player == null || status != MediaPlayer.Status.READY);
+        }
+
+        /**
          * Whether the player failed because its codec is not available on this system (never on macOS).
          */
         boolean codecUnavailable() {
-            return codec != null && source != null && MediaSupport.systemCodecOptional()
-                    && (player == null || status != MediaPlayer.Status.READY);
+            return codec != null && failed() && MediaSupport.systemCodecOptional()
+                    && MediaSupport.audioOutputMissing() == null && !MediaSupport.audioDeviceError(error);
+        }
+
+        /**
+         * Informational description of a failure caused by this system (no audio output device, codec not available),
+         * or {@code null} : the failure is then a malfunction.
+         */
+        String unavailable() {
+            if (failed() && MediaSupport.audioOutputMissing() != null) {
+                // without the causes : the same exception, wrapped
+                String failure = failure();
+                int cause = failure.indexOf(" <- ");
+                return MediaSupport.audioOutputMissing() + ": " + (cause < 0 ? failure : failure.substring(0, cause));
+            }
+            return codecUnavailable() ? MediaSupport.codecUnavailable(codec, failure()) : null;
         }
 
         String failure() {
@@ -276,12 +298,13 @@ public class AudioPage implements FeaturePage {
             return;
         }
         boolean ok = player.error == null && player.status == MediaPlayer.Status.READY;
-        boolean unavailable = !ok && player.codecUnavailable();
+        boolean unavailable = !ok && player.unavailable() != null;
         player.statusLabel.getStyleClass().removeAll("waiting", "failed");
         if (!ok) {
             player.statusLabel.getStyleClass().add(unavailable ? "waiting" : "failed");
         }
-        player.statusLabel.setText(ok ? player.status.name() : unavailable ? "NO CODEC" : "FAILED");
+        player.statusLabel.setText(ok ? player.status.name()
+                : !unavailable ? "FAILED" : player.codecUnavailable() ? "NO CODEC" : "NO DEVICE");
         if (player.player != null && ok) {
             Duration total = player.player.getTotalDuration();
             player.position.setMax(total.toSeconds());
@@ -385,8 +408,9 @@ public class AudioPage implements FeaturePage {
         List<Check> media = new ArrayList<>();
         for (Player player : state.players) {
             if (player.player == null || player.status != MediaPlayer.Status.READY) {
-                media.add(player.codecUnavailable()
-                        ? Check.info(player.file + ": status", MediaSupport.codecUnavailable(player.codec, player.failure()))
+                String unavailable = player.unavailable();
+                media.add(unavailable != null
+                        ? Check.info(player.file + ": status", unavailable)
                         : Check.fail(player.file + ": status", player.error != null ? player.error : player.status));
                 continue;
             }
@@ -399,21 +423,25 @@ public class AudioPage implements FeaturePage {
             metadata.add(player.media == null ? "-" : MediaSupport.metadata(player.media.getMetadata()));
         }
         media.add(Check.info("metadata (wav, aiff, m4a)", String.join(", ", metadata)));
-        // "1, 1, 1" : no call for a player whose codec is not available on this system
+        // "1, 1, 1" : no call for a player that this system cannot play (codec or audio output device not available)
         media.add(Checks.expect("onReady handler calls (wav, aiff, m4a)",
-                String.join(", ", state.players.stream().map(p -> p.codecUnavailable() ? "0" : "1").toList()),
+                String.join(", ", state.players.stream().map(p -> p.unavailable() != null ? "0" : "1").toList()),
                 () -> String.join(", ", state.players.stream().map(p -> String.valueOf(p.readyEvents)).toList())));
         List<String> classpath = new ArrayList<>();
         boolean classpathOk = true;
+        boolean classpathInfo = false;
         for (Player player : state.classpathPlayers) {
             boolean ok = player.player != null && player.status == MediaPlayer.Status.READY;
-            boolean unavailable = !ok && player.codecUnavailable();
-            classpathOk &= ok || unavailable;
+            String unavailable = ok ? null : player.unavailable();
+            classpathOk &= ok || unavailable != null;
+            classpathInfo |= unavailable != null;
             classpath.add(player.file + " " + (ok ? player.status + " " + MediaSupport.seconds(player.media.getDuration())
-                    : unavailable ? MediaSupport.codecUnavailable(player.codec, player.failure())
+                    : unavailable != null ? unavailable
                     : player.failure()));
         }
-        media.add(Check.of("Media(classpath URL), no temporary file", classpathOk, String.join(", ", classpath)));
+        // informational when this system cannot play one of the files
+        media.add(new Check("Media(classpath URL), no temporary file", String.join(", ", classpath),
+                !classpathOk ? Boolean.FALSE : classpathInfo ? null : Boolean.TRUE));
 
         List<Check> other = new ArrayList<>();
         if (state.clip == null) {

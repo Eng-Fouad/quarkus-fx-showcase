@@ -19,6 +19,7 @@ import io.quarkiverse.fx.showcase.core.Fx;
 import javafx.concurrent.Worker;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
+import javafx.scene.image.WritableImage;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -158,10 +159,23 @@ public class WebViewPage implements FeaturePage {
             if (++pulses[0] % 10 != 0) {
                 return false;
             }
+            double width = state.view.getWidth();
+            double height = state.view.getHeight();
+            if (width <= 0 || height <= 0) {
+                // not laid out yet : nothing painted
+                return false;
+            }
             // center of the donut chart : a flat color, the same in the canvas buffer and on the page
             String[] probe = String.valueOf(state.engine.executeScript("canvasProbe(62, 76)")).split(",");
-            int argb = state.view.snapshot(null, null).getPixelReader()
-                    .getArgb(Integer.parseInt(probe[0]), Integer.parseInt(probe[1]));
+            WritableImage snapshot = state.view.snapshot(null, null);
+            // page coordinates (CSS pixels of the WebView at zoom 1) to pixels of the snapshot, from its real size
+            int x = (int) Math.floor(Integer.parseInt(probe[0]) * snapshot.getWidth() / width);
+            int y = (int) Math.floor(Integer.parseInt(probe[1]) * snapshot.getHeight() / height);
+            if (x < 0 || y < 0 || x >= snapshot.getWidth() || y >= snapshot.getHeight()) {
+                throw new IllegalStateException("canvas probe at (" + probe[0] + ", " + probe[1]
+                        + ") outside of the WebView (" + (int) width + "x" + (int) height + ")");
+            }
+            int argb = snapshot.getPixelReader().getArgb(x, y);
             boolean visible = Math.abs(((argb >> 16) & 0xff) - Integer.parseInt(probe[2])) < 12
                     && Math.abs(((argb >> 8) & 0xff) - Integer.parseInt(probe[3])) < 12
                     && Math.abs((argb & 0xff) - Integer.parseInt(probe[4])) < 12;

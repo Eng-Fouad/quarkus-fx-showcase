@@ -1,6 +1,9 @@
 package io.quarkiverse.fx.showcase.pages.media;
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -10,6 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BooleanSupplier;
+import java.util.stream.Stream;
 
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.Fx;
@@ -42,6 +46,8 @@ final class MediaSupport {
 
     private static String iconFamily;
     private static boolean iconFamilyLoaded;
+    private static String audioOutputMissing;
+    private static boolean audioOutputProbed;
 
     private MediaSupport() {
     }
@@ -121,6 +127,75 @@ final class MediaSupport {
      */
     static boolean systemCodecOptional() {
         return !Platforms.isMac();
+    }
+
+    /**
+     * Status of a READY player of an MP4 file once {@link MediaPlayer#pause()} was processed : the documented status
+     * transitions have none from READY to PAUSED (only a PLAYING, STALLED or STOPPED player pauses). AVFoundation, which
+     * plays MP4 files on macOS, reports PAUSED anyway; the GStreamer based engine of Windows and Linux keeps READY (its
+     * prerolled pipeline is already paused : no state change, so no PAUSED event).
+     */
+    static MediaPlayer.Status mp4StatusAfterPauseWhenReady() {
+        return Platforms.isMac() ? MediaPlayer.Status.PAUSED : MediaPlayer.Status.READY;
+    }
+
+    /**
+     * Why this system has no audio output device, or {@code null} if it has one (or if that is not known).
+     * <p>
+     * Only detected on Linux, where JavaFX plays audio to the ALSA "default" device : it does not exist without a sound
+     * card and without an ALSA configuration defining it (a sound server plugin, a null device, ...), typically in a
+     * container. JavaFX then fails to create WAV and AIFF players ("Could not create player!", the cause is only logged)
+     * and halts the others ("Could not open audio device for playback."). A system with a sound card or an ALSA
+     * configuration has a device : a player failure is then a malfunction.
+     */
+    static synchronized String audioOutputMissing() {
+        if (!audioOutputProbed) {
+            audioOutputProbed = true;
+            audioOutputMissing = Platforms.isLinux() && !linuxSoundCard() && !linuxAlsaConfiguration()
+                    ? "no audio output device (no sound card, no ALSA configuration)"
+                    : null;
+        }
+        return audioOutputMissing;
+    }
+
+    private static boolean linuxSoundCard() {
+        try {
+            String cards = Files.readString(Path.of("/proc/asound/cards"));
+            return !cards.isBlank() && !cards.contains("no soundcards");
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
+    }
+
+    private static boolean linuxAlsaConfiguration() {
+        String home = System.getProperty("user.home", "");
+        for (String path : List.of("/etc/asound.conf", home + "/.asoundrc", "/etc/alsa/conf.d",
+                "/usr/share/alsa/alsa.conf.d")) {
+            Path file = Path.of(path);
+            try {
+                if (Files.isRegularFile(file)) {
+                    return true;
+                }
+                if (Files.isDirectory(file)) {
+                    try (Stream<Path> entries = Files.list(file)) {
+                        if (entries.findAny().isPresent()) {
+                            return true;
+                        }
+                    }
+                }
+            } catch (IOException | RuntimeException e) {
+                // unreadable : considered as configured, a player failure is then reported as a failure
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether {@code error} (of a player) is the failure to open the audio output device.
+     */
+    static boolean audioDeviceError(String error) {
+        return error != null && error.contains("Could not open audio device");
     }
 
     /**
