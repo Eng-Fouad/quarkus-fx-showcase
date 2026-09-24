@@ -126,8 +126,30 @@ public class PlatformBindingsPage implements FeaturePage {
         ObjectProperty<Customer> root = new SimpleObjectProperty<>(customer);
         StringBinding city = Bindings.selectString(root, "address", "city");
         IntegerBinding zip = Bindings.selectInteger(root, "address", "zip");
-        // a plain object root : the first step goes through a JavaBean adapter on getName()
-        ObjectBinding<Object> name = Bindings.select(customer, "name");
+        // a plain object root : the first step goes through a JavaBean adapter on getName(), created by
+        // com.sun.javafx.property.JavaBeanAccessHelper which loads JavaBeanQuickAccessor reflectively. It throws
+        // "Java beans are not supported" when that fails : record it as a check instead of breaking the page.
+        ObjectBinding<Object> name;
+        try {
+            name = Bindings.select(customer, "name");
+        } catch (RuntimeException e) {
+            checks.add(Check.fail("Bindings.select(POJO root, name)", Checks.describe(e)));
+            name = null;
+        }
+        ObjectBinding<Object> pojoName = name;
+        // a PropertyChangeSupport bean as root : the select binding follows its bound property events
+        LegacyAccount legacy = new LegacyAccount("Duke", 7);
+        List<String> legacyOwners = new ArrayList<>();
+        try {
+            StringBinding owner = Bindings.selectString(legacy, "owner");
+            legacyOwners.add(owner.get());
+            legacy.setOwner("Tux");
+            legacyOwners.add(owner.get());
+            checks.add(Checks.expect("selectString(JavaBean root, owner)", "Duke > Tux",
+                    () -> String.join(" > ", legacyOwners)));
+        } catch (RuntimeException e) {
+            checks.add(Check.fail("selectString(JavaBean root, owner)", Checks.describe(e)));
+        }
         ObservableValue<String> fluent = customer.addressProperty().flatMap(Address::cityProperty).orElse("(no city)");
         List<String> selected = new ArrayList<>();
         List<String> flat = new ArrayList<>();
@@ -151,7 +173,8 @@ public class PlatformBindingsPage implements FeaturePage {
 
         checks.add(Checks.expect("Bindings.selectString(address, city)", "'London' > 'Paris' > 'Lyon' > 'null' > 'Oslo'",
                 () -> String.join(" > ", selected)));
-        checks.add(Checks.expect("selectInteger(zip) / select(name)", "150 / Ada", () -> zip.get() + " / " + name.get()));
+        checks.add(Checks.expect("selectInteger(zip) / select(name)", "150 / Ada",
+                () -> zip.get() + " / " + (pojoName == null ? "unsupported" : pojoName.get())));
         checks.add(Checks.expect("address.flatMap(city).orElse", "London > Paris > Lyon > (no city) > Oslo",
                 () -> String.join(" > ", flat)));
 
@@ -160,7 +183,8 @@ public class PlatformBindingsPage implements FeaturePage {
         bound.getStyleClass().add("kv-value");
         return PlatformUi.demo("Bindings.select on a JavaFX bean (reflection) vs ObservableValue.flatMap",
                 PlatformUi.line("selectString: " + String.join(" > ", selected)),
-                PlatformUi.line("flatMap:      " + String.join(" > ", flat)), bound);
+                PlatformUi.line("flatMap:      " + String.join(" > ", flat)),
+                PlatformUi.line("JavaBean root selectString(owner): " + String.join(" > ", legacyOwners)), bound);
     }
 
     // ------------------------------------------------------------------ JavaBean adapters
