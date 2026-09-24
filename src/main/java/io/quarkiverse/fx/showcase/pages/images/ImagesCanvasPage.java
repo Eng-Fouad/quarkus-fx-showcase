@@ -15,6 +15,8 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms.Families;
+import io.quarkiverse.fx.showcase.pages.text.PageFonts;
 import io.quarkiverse.fx.showcase.pages.text.Ui;
 import javafx.geometry.VPos;
 import javafx.scene.Node;
@@ -88,6 +90,12 @@ public class ImagesCanvasPage implements FeaturePage {
 
         Map<String, Canvas> canvases = new LinkedHashMap<>();
         List<Check> checks = new ArrayList<>();
+        // "Georgia", "Helvetica Neue", "Menlo", "Geeza Pro" and "Hiragino Sans" on macOS
+        String georgia = PageFonts.georgia();
+        String sans = Families.sans();
+        String mono = Families.mono();
+        String arabic = Families.arabic();
+        String japanese = Families.japanese();
 
         canvases.put("shapes, line, polygon", draw(gc -> {
             gc.setLineWidth(2);
@@ -163,15 +171,15 @@ public class ImagesCanvasPage implements FeaturePage {
 
         canvases.put("fillText, strokeText", draw(gc -> {
             gc.setFill(Color.web("#0d47a1"));
-            gc.setFont(Font.font("Georgia", FontWeight.BOLD, 20));
+            gc.setFont(Font.font(georgia, FontWeight.BOLD, 20));
             gc.fillText("fillText", 6, 24);
             gc.setStroke(Color.web("#c62828"));
             gc.setLineWidth(1);
-            gc.setFont(Font.font("Helvetica Neue", FontWeight.BOLD, 26));
+            gc.setFont(Font.font(sans, FontWeight.BOLD, 26));
             gc.strokeText("strokeText", 6, 56);
             gc.setFill(Color.web("#2e7d32"));
-            gc.setFont(Font.font("Menlo", FontPosture.ITALIC, 12));
-            gc.fillText("Menlo, maxWidth 90 squeezed", 6, 84, 90);
+            gc.setFont(Font.font(mono, FontPosture.ITALIC, 12));
+            gc.fillText(mono + ", maxWidth 90 squeezed", 6, 84, 90);
         }));
 
         canvases.put("TextAlignment L, C, R", draw(gc -> {
@@ -238,7 +246,7 @@ public class ImagesCanvasPage implements FeaturePage {
             gc.setFill(Color.web("#f06292"));
             gc.fillOval(84, 12, 50, 50);
             gc.setFill(Color.web("#3949ab"));
-            gc.setFont(Font.font("Helvetica Neue", FontWeight.BOLD, 18));
+            gc.setFont(Font.font(sans, FontWeight.BOLD, 18));
             gc.fillText("Shadow", 12, 84);
             gc.setEffect(null);
         }));
@@ -439,9 +447,9 @@ public class ImagesCanvasPage implements FeaturePage {
 
         canvases.put("Arabic, CJK, emoji text", draw(gc -> {
             gc.setFill(Color.web("#1a237e"));
-            gc.setFont(Font.font("Geeza Pro", 20));
+            gc.setFont(Font.font(arabic, 20));
             gc.fillText("مرحبا بالعالم", 6, 28);
-            gc.setFont(Font.font("Hiragino Sans", 16));
+            gc.setFont(Font.font(japanese, 16));
             gc.fillText("日本語のテキスト", 6, 56);
             gc.setFont(Font.font("System", 18));
             gc.fillText("Emoji 😀🚀❤️", 6, 86);

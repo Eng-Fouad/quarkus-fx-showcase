@@ -14,6 +14,8 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms;
+import io.quarkiverse.fx.showcase.core.Platforms.Families;
 import javafx.css.CssParser;
 import javafx.css.FontFace;
 import javafx.css.Stylesheet;
@@ -48,9 +50,8 @@ public class TextFontsPage implements FeaturePage {
     static final Color[] ICON_COLORS = { Color.web("#1565c0"), Color.web("#d81b60"), Color.web("#546e7a"),
             Color.web("#ef6c00"), Color.web("#2e7d32"), Color.web("#6a1b9a") };
 
-    static final String[] SYSTEM_FAMILIES = { "Helvetica", "Helvetica Neue", "Times New Roman", "Georgia", "Menlo",
-            "Courier New", "Avenir Next", "Optima", "Palatino", "Marker Felt", "Serif", "SansSerif", "Monospaced",
-            "System", "NoSuchFamily" };
+    /** Always present after the installed families of {@link PageFonts#systemFamilies()}. */
+    static final List<String> LOGICAL_FAMILIES = List.of("Serif", "SansSerif", "Monospaced", "System", "NoSuchFamily");
 
     @Override
     public String id() {
@@ -139,8 +140,10 @@ public class TextFontsPage implements FeaturePage {
         families.setHgap(14);
         families.setVgap(1);
         List<String> resolved = new ArrayList<>();
-        for (int i = 0; i < SYSTEM_FAMILIES.length; i++) {
-            String family = SYSTEM_FAMILIES[i];
+        List<String> systemFamilies = new ArrayList<>(PageFonts.systemFamilies());
+        systemFamilies.addAll(LOGICAL_FAMILIES);
+        for (int i = 0; i < systemFamilies.size(); i++) {
+            String family = systemFamilies.get(i);
             Font font = Font.font(family, 15);
             Text t = new Text(family + " Aa Gg 123");
             t.setFont(font);
@@ -157,8 +160,14 @@ public class TextFontsPage implements FeaturePage {
         cssAwesome.getStyleClass().add("awesome-css");
         Label cssFace = new Label("Showcase Face, loaded only by @font-face");
         cssFace.getStyleClass().add("face-css");
-        Label cssShorthand = new Label("-fx-font: bold italic 16px Georgia");
+        // fonts.css uses Georgia (macOS, Windows) : where it is not installed, an inline style (applied over the
+        // stylesheet) uses the same shorthand with an installed serif family
+        String georgia = PageFonts.georgia();
+        Label cssShorthand = new Label("-fx-font: bold italic 16px " + georgia);
         cssShorthand.getStyleClass().add("font-shorthand-css");
+        if (!georgia.equals("Georgia")) {
+            cssShorthand.setStyle("-fx-font: bold italic 16px '" + georgia + "';");
+        }
         VBox cssTile = Ui.grow(Ui.tile("Stylesheet fonts.css : @font-face url(..), -fx-font-family, -fx-font", cssRoboto,
                 cssAwesome, cssFace, cssShorthand));
         cssTile.getStylesheets().add(Fx.resourceUrl(STYLESHEET));
@@ -169,19 +178,15 @@ public class TextFontsPage implements FeaturePage {
                 + " / " + Font.getFontNames("Roboto Light") + " / " + Font.getFontNames("Font Awesome 5 Free Solid")));
         // Font.getFamilies() is computed once (static cache in PrismFontFactory) : fonts loaded after the first call,
         // by any page, are missing from it. Only system families are checked, loaded fonts use getFontNames(family)
-        checks.add(Checks.expect("Font.getFamilies() contains", "Helvetica=true, Menlo=true, Times New Roman=true, "
-                + "Geeza Pro=true, Hiragino Sans=true", () -> {
-                    List<String> all = Font.getFamilies();
-                    return String.join(", ", List.of("Helvetica", "Menlo", "Times New Roman", "Geeza Pro",
-                            "Hiragino Sans").stream().map(f -> f + "=" + all.contains(f)).toList());
-                }));
+        checks.add(familiesCheck());
         checks.add(Check.info("Font.font(family, 15).getName()", String.join(", ", resolved)));
+        // Helvetica, Times New Roman, Menlo, Courier New and Georgia on macOS
         checks.add(Checks.run("Font.font(family, weight, posture, 14).getName()", () -> String.join(", ",
-                Font.font("Helvetica", FontWeight.BOLD, FontPosture.ITALIC, 14).getName(),
-                Font.font("Times New Roman", FontWeight.BOLD, FontPosture.REGULAR, 14).getName(),
-                Font.font("Menlo", FontWeight.NORMAL, FontPosture.ITALIC, 14).getName(),
-                Font.font("Courier New", FontWeight.BOLD, FontPosture.ITALIC, 14).getName(),
-                Font.font("Georgia", FontWeight.LIGHT, FontPosture.ITALIC, 14).getName(),
+                Font.font(Families.helvetica(), FontWeight.BOLD, FontPosture.ITALIC, 14).getName(),
+                Font.font(Families.serif(), FontWeight.BOLD, FontPosture.REGULAR, 14).getName(),
+                Font.font(Families.mono(), FontWeight.NORMAL, FontPosture.ITALIC, 14).getName(),
+                Font.font(PageFonts.courier(), FontWeight.BOLD, FontPosture.ITALIC, 14).getName(),
+                Font.font(georgia, FontWeight.LIGHT, FontPosture.ITALIC, 14).getName(),
                 Font.font("Monospaced", FontWeight.BOLD, FontPosture.REGULAR, 14).getName())));
         checks.add(Checks.run("Font.getDefault()", () -> Font.getDefault().getName() + ", " + Font.getDefault().getFamily()
                 + ", " + Ui.num(Font.getDefault().getSize())));
@@ -204,9 +209,10 @@ public class TextFontsPage implements FeaturePage {
                         // FontFaceImpl.toString : ... src : URL "<resolved url>", ...
                         Matcher m = Pattern.compile("URL \"([^\"]*)\"").matcher(face.toString());
                         while (m.find()) {
-                            // the part before showcase/ depends on the runtime (jar: or resource: URL)
+                            // the part before showcase/ depends on the runtime (jar: or resource: URL) and on the
+                            // install directory, which may itself contain "showcase/" (.../quarkus-fx-showcase/...)
                             String url = m.group(1);
-                            int index = url.indexOf("showcase/");
+                            int index = url.lastIndexOf("showcase/");
                             sources.add(index < 0 ? "?" + url.substring(url.indexOf(':') + 1) : url.substring(index));
                         }
                     }
@@ -220,15 +226,42 @@ public class TextFontsPage implements FeaturePage {
 
         CompletionStage<?> ready = Fx.pulses(2).thenRun(() -> {
             List<Check> all = new ArrayList<>(checks);
-            // Showcase Face falls back to the System font if its @font-face was not loaded
+            // Showcase Face falls back to the System font if its @font-face was not loaded. The -fx-font shorthand
+            // resolves its font with Font.font(family, weight, posture, size): "Georgia Bold Italic" on macOS
+            String shorthand = Platforms.isMac() ? "Georgia Bold Italic"
+                    : Font.font(georgia, FontWeight.BOLD, FontPosture.ITALIC, 16).getName();
             all.add(Checks.expect("fonts of the CSS styled labels", "Roboto Light 18.0, Font Awesome 5 Free Solid 22.0, "
-                    + "Showcase Face Light 18.0 [Showcase Face Light], Georgia Bold Italic 16.0",
+                    + "Showcase Face Light 18.0 [Showcase Face Light], " + shorthand + " 16.0",
                     () -> String.join(", ", name(cssRoboto), name(cssAwesome), name(cssFace) + " "
                             + Font.getFontNames("Showcase Face"), name(cssShorthand))));
             checksHolder.getChildren().setAll(Checks.view("Font loading and resolution", all));
         });
         root.getProperties().put(READY, ready);
         return root;
+    }
+
+    /**
+     * Font.getFamilies() lists the installed system families : on macOS and Windows, families every installation has;
+     * on Linux the installed fonts depend on the distribution, only a non empty list is required.
+     */
+    private static Check familiesCheck() {
+        String name = "Font.getFamilies() contains";
+        if (Platforms.isLinux()) {
+            try {
+                List<String> all = Font.getFamilies();
+                return Check.of(name, !all.isEmpty(), String.join(", ", List.of("DejaVu Sans", "Liberation Sans",
+                        "Noto Sans", "DejaVu Sans Mono").stream().map(f -> f + "=" + all.contains(f)).toList()));
+            } catch (Throwable t) {
+                return Check.fail(name, Checks.describe(t));
+            }
+        }
+        List<String> families = Platforms.isMac()
+                ? List.of("Helvetica", "Menlo", "Times New Roman", "Geeza Pro", "Hiragino Sans")
+                : List.of("Arial", "Consolas", "Times New Roman", "Segoe UI", "Courier New");
+        return Checks.expect(name, String.join(", ", families.stream().map(f -> f + "=true").toList()), () -> {
+            List<String> all = Font.getFamilies();
+            return String.join(", ", families.stream().map(f -> f + "=" + all.contains(f)).toList());
+        });
     }
 
     private static String name(Label label) {
