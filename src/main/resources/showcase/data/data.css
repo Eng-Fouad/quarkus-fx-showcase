@@ -32,7 +32,19 @@
     -fx-fill: white;
 }
 
-/* ListView styled through CSS only */
+/* ListView styled through CSS only : skin class (instantiated reflectively), fixed cell size, cells */
+.fancy-list {
+    -fx-skin: "io.quarkiverse.fx.showcase.pages.data.FooterListViewSkin";
+    -fx-fixed-cell-size: 26px;
+}
+
+.fancy-list .list-footer {
+    -fx-font-size: 10px;
+    -fx-padding: 2 6 2 6;
+    -fx-text-fill: white;
+    -fx-background-color: #37474f;
+}
+
 .fancy-list .list-cell {
     -fx-padding: 5 10 5 10;
     -fx-text-fill: #0d47a1;
@@ -104,4 +116,10 @@
 .tab-body {
     -fx-padding: 10;
     -fx-spacing: 6;
+}
+
+/* TabPaneSkin styleable properties (private enum, EnumConverter) */
+.no-tab-animation {
+    -fx-open-tab-animation: none;
+    -fx-close-tab-animation: none;
 }

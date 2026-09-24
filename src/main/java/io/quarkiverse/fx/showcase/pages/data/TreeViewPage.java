@@ -238,7 +238,11 @@ public class TreeViewPage implements FeaturePage {
         TreeTableColumn<FileEntry, String> modifiedCol = new TreeTableColumn<>("Modified");
         modifiedCol.setCellValueFactory(new TreeItemPropertyValueFactory<>("modified"));
         modifiedCol.setPrefWidth(90);
-        treeTable.getColumns().setAll(List.of(nameCol, typeCol, sizeCol, modifiedCol));
+        // no directoryProperty() nor getDirectory() : TreeItemPropertyValueFactory falls back to isDirectory()
+        TreeTableColumn<FileEntry, Boolean> directoryCol = new TreeTableColumn<>("Directory");
+        directoryCol.setCellValueFactory(new TreeItemPropertyValueFactory<>("directory"));
+        directoryCol.setVisible(false);
+        treeTable.getColumns().setAll(List.of(nameCol, typeCol, sizeCol, modifiedCol, directoryCol));
         treeTable.setColumnResizePolicy(TreeTableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         // selected before sorting : the sort keeps the selected item
         treeTable.getSelectionModel().select(runner);
@@ -272,17 +276,19 @@ public class TreeViewPage implements FeaturePage {
 
         List<Check> tableChecks = new ArrayList<>();
         tableChecks.add(Checks.expect("TreeItemPropertyValueFactory", "src", () -> nameCol.getCellData(src)));
-        tableChecks.add(Checks.expect("xxxProperty() method used", true,
+        tableChecks.add(Checks.expect("TreeItem xxxProperty() used", true,
                 () -> (Object) sizeCol.getCellObservableValue(runner) == runner.getValue().sizeProperty()));
+        tableChecks.add(Checks.expect("is-getter fallback (hidden col)", "src=true, SnapshotRunner.java=false",
+                () -> "src=" + directoryCol.getCellData(src) + ", SnapshotRunner.java=" + directoryCol.getCellData(runner)));
         tableChecks.add(Checks.expect("folder size (sum)", "48.7 KB", () -> humanSize(sizeCol.getCellData(resources)
                 .longValue())));
-        tableChecks.add(Checks.expect("sort order", "Size DESCENDING", () -> treeTable.getSortOrder().stream()
+        tableChecks.add(Checks.expect("TreeTableView sort order", "Size DESCENDING", () -> treeTable.getSortOrder().stream()
                 .map(c -> c.getText() + " " + c.getSortType()).collect(Collectors.joining(", "))));
         tableChecks.add(Checks.expect("sorted root children", "[target, src, pom.xml, README.md]",
                 () -> fileRoot.getChildren().stream().map(i -> i.getValue().getName()).toList().toString()));
         tableChecks.add(Checks.expect("sorted descendants", "[pattern.png, app.css, application.properties]",
                 () -> resources.getChildren().stream().map(i -> i.getValue().getName()).toList().toString()));
-        tableChecks.add(Checks.expect("selected row", "SnapshotRunner.java",
+        tableChecks.add(Checks.expect("TreeTableView selected row", "SnapshotRunner.java",
                 () -> treeTable.getSelectionModel().getSelectedItem().getValue().getName()));
 
         DataUi.ChecksHolder left = new DataUi.ChecksHolder("TreeView & CheckBoxTreeItem", treeChecks);
@@ -299,7 +305,7 @@ public class TreeViewPage implements FeaturePage {
         CompletionStage<?> ready = Fx.pulses(4).thenRun(() -> {
             left.complete(List.of(
                     check("TreeView skin", () -> tree.getSkin().getClass().getSimpleName()),
-                    check("visible rows", () -> DataUi.visibleRange(tree)),
+                    check("TreeView visible rows", () -> DataUi.visibleRange(tree)),
                     check("cell graphic (row 0)", () -> {
                         TreeCell<?> cell = DataUi.cell(tree, ".tree-cell", 0);
                         return cell.getGraphic() == null ? "none" : cell.getGraphic().getClass().getSimpleName();
@@ -307,8 +313,8 @@ public class TreeViewPage implements FeaturePage {
                     check("CheckBoxTreeCell", () -> DataUi.cell(checkTree, ".tree-cell", 1).getClass().getSimpleName())));
             right.complete(List.of(
                     check("TreeTableView skin", () -> treeTable.getSkin().getClass().getSimpleName()),
-                    check("visible rows", () -> DataUi.visibleRange(treeTable)),
-                    check("column widths", () -> treeTable.getVisibleLeafColumns().stream()
+                    check("TreeTableView visible rows", () -> DataUi.visibleRange(treeTable)),
+                    check("TreeTableView column widths", () -> treeTable.getVisibleLeafColumns().stream()
                             .map(c -> String.valueOf(Math.round(c.getWidth()))).collect(Collectors.joining(" ")))));
         });
         DataUi.setReady(root, ready);
