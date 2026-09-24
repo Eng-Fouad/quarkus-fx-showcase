@@ -25,13 +25,25 @@
     -fx-text-fill: #455a64;
 }
 
+.gfx-matrix-header {
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #37474f;
+}
+
+.gfx-matrix-row {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #263238;
+}
+
 /* ---- Shapes ---- */
 
 .css-stroke {
     -fx-fill: #e1bee7;
     -fx-stroke: #6a1b9a;
     -fx-stroke-width: 4;
-    -fx-stroke-dash-array: 12 5 2 5;
+    -fx-stroke-dash-array: 12 8 2 8;
     -fx-stroke-dash-offset: 3;
     -fx-stroke-line-cap: round;
     -fx-stroke-line-join: bevel;

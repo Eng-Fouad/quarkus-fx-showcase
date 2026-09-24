@@ -10,7 +10,6 @@ import static io.quarkiverse.fx.showcase.pages.graphics.Tiles.tile;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletionStage;
 import java.util.Locale;
 
 import jakarta.inject.Singleton;
@@ -69,11 +68,6 @@ public class TransformsClipPage implements FeaturePage {
     @Override
     public int order() {
         return 50;
-    }
-
-    @Override
-    public CompletionStage<?> ready(Node content) {
-        return Tiles.warmUp(content);
     }
 
     @Override
@@ -276,7 +270,7 @@ public class TransformsClipPage implements FeaturePage {
         view.setFitWidth(100);
         view.setFitHeight(100);
         SVGPath heart = new SVGPath();
-        heart.setContent(ShapesPage.paths().getProperty("heart"));
+        heart.setContent(ShapesPage.path(ShapesPage.paths(), "heart"));
         view.setClip(heart);
         Group group = new Group(view);
         group.setScaleX(0.75);
