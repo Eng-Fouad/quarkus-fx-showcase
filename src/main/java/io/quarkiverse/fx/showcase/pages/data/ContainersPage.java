@@ -19,6 +19,7 @@ import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
 import io.quarkiverse.fx.showcase.core.ShowcaseMode;
+import javafx.event.Event;
 import javafx.geometry.Bounds;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
@@ -36,6 +37,8 @@ import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TitledPane;
 import javafx.scene.control.ToggleGroup;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
@@ -74,6 +77,12 @@ public class ContainersPage implements FeaturePage {
 
     private static Node square(String color) {
         return new Rectangle(10, 10, Color.web(color));
+    }
+
+    private static Node arrow(String color) {
+        Polygon arrow = new Polygon(0, 0, 9, 5, 0, 10);
+        arrow.setFill(Color.web(color));
+        return arrow;
     }
 
     private static Node star(String color) {
@@ -122,22 +131,32 @@ public class ContainersPage implements FeaturePage {
         // --- TabPane, top, closable, graphics
         CheckBox hidden = new CheckBox("Show hidden files");
         hidden.setSelected(true);
+        // "Temp" is closed after layout through its close button (TabPaneSkin), without animation thanks to the
+        // skin CSS properties -fx-open-tab-animation / -fx-close-tab-animation (see data.css)
+        Tab temp = tab("Temp", dot("#43a047"), tabBody("Temp", new Label("Closed through its close button")));
+        temp.setId("temp-tab");
+        List<String> tabEvents = new ArrayList<>();
+        temp.setOnCloseRequest(e -> tabEvents.add("onCloseRequest"));
+        temp.setOnClosed(e -> tabEvents.add("onClosed"));
         TabPane topTabs = new TabPane(
                 tab("Home", dot("#e53935"), tabBody("Home", new Label("Welcome to the Home tab"))),
                 tab("Files", square("#1e88e5"), tabBody("Files tab (selected)", hidden, new CheckBox("Sort by name"),
                         new Button("Refresh"))),
                 tab("Settings", star("#fdd835"), tabBody("Settings", new Label("Preferences"))),
-                new Tab("Help", tabBody("Help", new Label("Not closable"))));
+                new Tab("Help", tabBody("Help", new Label("Not closable"))),
+                temp);
+        topTabs.getStyleClass().add("no-tab-animation");
         topTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.ALL_TABS);
         topTabs.getTabs().get(3).setClosable(false);
         topTabs.getSelectionModel().select(1);
 
         // --- TabPane, left side
         TabPane leftTabs = new TabPane(
-                new Tab("Alpha", colored("pane-a", "Alpha")),
-                new Tab("Beta", colored("pane-b", "Beta")),
-                new Tab("Gamma", colored("pane-c", "Gamma (selected)")));
+                tab("Alpha", arrow("#43a047"), colored("pane-a", "Alpha")),
+                tab("Beta", arrow("#1e88e5"), colored("pane-b", "Beta")),
+                tab("Gamma", arrow("#fb8c00"), colored("pane-c", "Gamma (selected) · rotateGraphic")));
         leftTabs.setSide(Side.LEFT);
+        leftTabs.setRotateGraphic(true);
         leftTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         leftTabs.getSelectionModel().select(2);
 
@@ -212,9 +231,9 @@ public class ContainersPage implements FeaturePage {
 
         // --- checks
         List<Check> checks = new ArrayList<>();
-        checks.add(Checks.expect("top tabs / selected", "4 / Files",
+        checks.add(Checks.expect("top tabs / selected (built)", "5 / Files",
                 () -> topTabs.getTabs().size() + " / " + topTabs.getSelectionModel().getSelectedItem().getText()));
-        checks.add(Checks.expect("closable tabs", "[Home, Files, Settings]", () -> topTabs.getTabs().stream()
+        checks.add(Checks.expect("closable tabs", "[Home, Files, Settings, Temp]", () -> topTabs.getTabs().stream()
                 .filter(Tab::isClosable).map(Tab::getText).toList().toString()));
         checks.add(Checks.expect("side tabs", "LEFT Gamma / BOTTOM Two",
                 () -> leftTabs.getSide() + " " + leftTabs.getSelectionModel().getSelectedItem().getText() + " / "
@@ -248,18 +267,29 @@ public class ContainersPage implements FeaturePage {
         holder.setPrefWidth(492);
 
         HBox rowA = DataUi.row(
-                demo("TabPane · top · closable · graphics", topTabs, 400, 190),
-                demo("TabPane · Side.LEFT", leftTabs, 330, 190),
-                demo("TabPane · Side.BOTTOM · floating", bottomTabs, 274, 190));
+                demo("TabPane · top · closable · graphics · Temp closed", topTabs, 400, 216),
+                demo("TabPane · Side.LEFT · graphics", leftTabs, 330, 216),
+                demo("TabPane · Side.BOTTOM · floating", bottomTabs, 274, 216));
         VBox left = new VBox(10,
                 DataUi.row(demo("Accordion · one expanded", accordion, 256, 220),
                         demo("TitledPane", titledPanes, 256, 220)),
                 DataUi.row(demo("SplitPane · vertical 0.35 · nested", vertical, 256, 220),
                         demo("ScrollPane · hvalue 0.5 · vvalue 0.4", scroll, 256, 220)));
-        VBox right = new VBox(10, demo("SplitPane · horizontal · dividers 0.25, 0.60", horizontal, 492, 150), holder);
+        VBox right = new VBox(10, demo("SplitPane · horizontal · dividers 0.25, 0.60", horizontal, 492, 120), holder);
         VBox root = DataUi.page(new VBox(10, rowA, DataUi.row(left, right)));
 
         CompletionStage<?> ready = Fx.pulses(4).thenRun(() -> holder.complete(List.of(
+                Checks.expect("close button (skin)", "[onCloseRequest, onClosed] 4 tabs, 4 headers, Files", () -> {
+                    Node closeButton = topTabs.lookup("#temp-tab").lookup(".tab-close-button");
+                    Event.fireEvent(closeButton, new MouseEvent(MouseEvent.MOUSE_PRESSED, 0, 0, 0, 0,
+                            MouseButton.PRIMARY, 1, false, false, false, false, true, false, false, false, false, false,
+                            null));
+                    // without animation, the header is removed at once
+                    return tabEvents + " " + topTabs.getTabs().size() + " tabs, "
+                            + topTabs.lookupAll(".tab-header-area .tab").size() + " headers, "
+                            + topTabs.getSelectionModel().getSelectedItem().getText();
+                }),
+                check("close button text (bundle)", () -> topTabs.lookup(".tab-close-button").getAccessibleText()),
                 Checks.expect("expand General (skin)", "General, Appearance collapsed; restored", () -> {
                     general.setExpanded(true);
                     String result = accordion.getExpandedPane().getText() + ", Appearance "
