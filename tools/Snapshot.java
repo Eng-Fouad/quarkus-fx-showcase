@@ -65,6 +65,11 @@ public class Snapshot {
         if (pages != null && !pages.isBlank()) {
             command.add("-Dshowcase.snapshot.pages=" + pages);
         }
+        // Quarkus native executables default to the build machine locale, the JVM to the user's : compare with a fixed one
+        if (options.stream().noneMatch(o -> o.startsWith("-Duser.language="))) {
+            command.add("-Duser.language=en");
+            command.add("-Duser.country=US");
+        }
         command.addAll(options);
         if (mode.equals("jvm")) {
             command.add("-jar");
