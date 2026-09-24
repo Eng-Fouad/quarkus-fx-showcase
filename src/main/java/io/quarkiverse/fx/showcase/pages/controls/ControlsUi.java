@@ -1,23 +1,28 @@
 package io.quarkiverse.fx.showcase.pages.controls;
 
-import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.ShowcaseMode;
+import javafx.collections.ListChangeListener;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
+import javafx.scene.Parent;
+import javafx.scene.chart.Axis;
 import javafx.scene.control.Label;
+import javafx.scene.control.Slider;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
+import javafx.stage.PopupWindow;
+import javafx.stage.Window;
 
 /**
  * Shared building blocks of the controls pages : captioned demo boxes, the group stylesheet and the fonts loaded from
@@ -50,7 +55,9 @@ final class ControlsUi {
     static final String INFO = "\uf05a";
 
     private static Font fontAwesome;
+    private static String fontAwesomeError;
     private static Font droidKufi;
+    private static String droidKufiError;
 
     private ControlsUi() {
     }
@@ -63,29 +70,69 @@ final class ControlsUi {
     }
 
     /**
-     * Font Awesome 5 Free Solid, loaded once from a classpath URL ({@link Font#loadFont(String, double)}).
+     * Font Awesome 5 Free Solid, loaded once from a classpath URL ({@link Font#loadFont(String, double)}). When the
+     * font cannot be loaded, the default font is returned (glyphs render as missing characters) and
+     * {@link #fontAwesomeCheck(String)} reports the failure : the rest of the page still renders.
      */
     static synchronized Font fontAwesome() {
-        if (fontAwesome == null) {
-            fontAwesome = Objects.requireNonNull(Font.loadFont(Fx.resourceUrl(FONT_AWESOME), 14),
-                    "Font.loadFont returned null for " + FONT_AWESOME);
+        if (fontAwesome == null && fontAwesomeError == null) {
+            try {
+                fontAwesome = Font.loadFont(Fx.resourceUrl(FONT_AWESOME), 14);
+                if (fontAwesome == null) {
+                    fontAwesomeError = "Font.loadFont returned null for " + FONT_AWESOME;
+                }
+            } catch (Throwable t) {
+                fontAwesomeError = Checks.describe(t);
+            }
         }
-        return fontAwesome;
+        return fontAwesome != null ? fontAwesome : Font.font(14);
+    }
+
+    static Check fontAwesomeCheck(String name) {
+        Font font = fontAwesome();
+        return fontAwesomeError == null ? Check.pass(name, describe(font)) : Check.fail(name, fontAwesomeError);
     }
 
     /**
-     * Droid Arabic Kufi, loaded once from a classpath stream ({@link Font#loadFont(InputStream, double)}).
+     * Droid Arabic Kufi, loaded once from a classpath stream ({@link Font#loadFont(InputStream, double)}), or the
+     * default font when it cannot be loaded (see {@link #droidKufiCheck(String)}).
      */
     static synchronized Font droidKufi() {
-        if (droidKufi == null) {
+        if (droidKufi == null && droidKufiError == null) {
             try (InputStream in = Fx.resource(DROID_KUFI).openStream()) {
-                droidKufi = Objects.requireNonNull(Font.loadFont(in, 13),
-                        "Font.loadFont returned null for " + DROID_KUFI);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
+                droidKufi = Font.loadFont(in, 13);
+                if (droidKufi == null) {
+                    droidKufiError = "Font.loadFont returned null for " + DROID_KUFI;
+                }
+            } catch (Throwable t) {
+                droidKufiError = Checks.describe(t);
             }
         }
-        return droidKufi;
+        return droidKufi != null ? droidKufi : Font.font(13);
+    }
+
+    static Check droidKufiCheck(String name) {
+        Font font = droidKufi();
+        return droidKufiError == null ? Check.pass(name, describe(font)) : Check.fail(name, droidKufiError);
+    }
+
+    /**
+     * A deterministic description of a node for checks : its type and id ({@code Node.toString()} contains an
+     * identity hash code).
+     */
+    static String describe(Node node) {
+        if (node == null) {
+            return "none";
+        }
+        return node.getClass().getSimpleName() + (node.getId() == null ? "" : "#" + node.getId());
+    }
+
+    /**
+     * Family and name of a font, or only the family when both are the same.
+     */
+    static String describe(Font font) {
+        return font.getFamily().equals(font.getName()) ? font.getFamily()
+                : font.getFamily() + " / " + font.getName();
     }
 
     /**
@@ -159,6 +206,22 @@ final class ControlsUi {
         return null;
     }
 
+    /**
+     * The tick marks and labels of a Slider are drawn by a NumberAxis, animated by default : its tick labels fade in
+     * (750 ms) each time they are laid out while showing, which is longer than the snapshot settle time. In snapshot
+     * mode the axis animation is disabled as soon as the skin creates the axis (before its first layout).
+     */
+    static Slider staticTicks(Slider slider) {
+        if (ShowcaseMode.snapshot()) {
+            slider.skinProperty().addListener((observable, oldSkin, newSkin) -> {
+                if (newSkin != null && slider.lookup(".axis") instanceof Axis<?> axis) {
+                    axis.setAnimated(false);
+                }
+            });
+        }
+        return slider;
+    }
+
     static <T extends Node> T grow(T node) {
         javafx.scene.layout.HBox.setHgrow(node, javafx.scene.layout.Priority.ALWAYS);
         return node;
@@ -176,9 +239,38 @@ final class ControlsUi {
         }
 
         void show(String title, List<Check> late) {
+            show(title, late, 1);
+        }
+
+        /**
+         * Shows the early and late checks, split into {@code columns} tables of equal width (the checks are
+         * collected in order, the first column first).
+         */
+        void show(String title, List<Check> late, int columns) {
             List<Check> all = new ArrayList<>(early);
             all.addAll(late);
-            getChildren().setAll(Checks.view(title, all));
+            if (columns <= 1) {
+                getChildren().setAll(Checks.view(title, all));
+                return;
+            }
+            double gap = 12;
+            HBox row = new HBox(gap);
+            // the holder is laid out when the late checks are shown : a fixed column width lets the (wrapped) values
+            // compute their height
+            double width = getWidth() > 0 ? getWidth() : getPrefWidth();
+            double columnWidth = Math.floor((width - getInsets().getLeft() - getInsets().getRight()
+                    - gap * (columns - 1)) / columns);
+            int perColumn = (all.size() + columns - 1) / columns;
+            for (int i = 0; i < columns; i++) {
+                List<Check> part = all.subList(Math.min(all.size(), i * perColumn),
+                        Math.min(all.size(), (i + 1) * perColumn));
+                VBox view = Checks.view(i == 0 ? title : title + " (continued)", part);
+                view.setMinWidth(columnWidth);
+                view.setPrefWidth(columnWidth);
+                view.setMaxWidth(columnWidth);
+                row.getChildren().add(view);
+            }
+            getChildren().setAll(row);
         }
     }
 
@@ -237,5 +329,59 @@ final class ControlsUi {
         pane.setVisible(false);
         pane.getStyleClass().add("hidden-checks");
         return pane;
+    }
+
+    /**
+     * Makes popup windows deterministic while they are captured : every popup shown while installed ignores the mouse
+     * (no hover effect whatever the pointer position) and has no focused item (a popup is focused only while its owner
+     * window is, so a focused cell or square would depend on the active application). Popups shown while installed
+     * are recorded, newest last.
+     */
+    static final class PopupGuard implements ListChangeListener<Window> {
+
+        final List<PopupWindow> shown = new ArrayList<>();
+
+        PopupGuard install() {
+            Window.getWindows().addListener(this);
+            return this;
+        }
+
+        void uninstall() {
+            Window.getWindows().removeListener(this);
+        }
+
+        @Override
+        public void onChanged(Change<? extends Window> change) {
+            while (change.next()) {
+                for (Window window : change.getAddedSubList()) {
+                    if (window instanceof PopupWindow popup && popup.getScene() != null) {
+                        shown.add(popup);
+                        calm(popup);
+                    }
+                }
+            }
+        }
+
+        /**
+         * Removes the mouse and the focus from {@code popup} content (skins request the focus on their content after
+         * the popup is shown, e.g. ComboBoxPopupControl).
+         */
+        static void calm(PopupWindow popup) {
+            Parent root = popup.getScene().getRoot();
+            root.setMouseTransparent(true);
+            root.requestFocus();
+        }
+
+        /**
+         * The last popup shown while installed and still showing.
+         */
+        PopupWindow lastShowing() {
+            for (int i = shown.size() - 1; i >= 0; i--) {
+                if (shown.get(i).isShowing()) {
+                    return shown.get(i);
+                }
+            }
+            return null;
+        }
     }
 }

@@ -17,10 +17,18 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import javafx.beans.binding.Bindings;
+import javafx.beans.property.adapter.JavaBeanBooleanProperty;
+import javafx.beans.property.adapter.JavaBeanBooleanPropertyBuilder;
+import javafx.beans.property.adapter.JavaBeanIntegerProperty;
+import javafx.beans.property.adapter.JavaBeanIntegerPropertyBuilder;
+import javafx.beans.property.adapter.JavaBeanStringProperty;
+import javafx.beans.property.adapter.JavaBeanStringPropertyBuilder;
 import javafx.collections.FXCollections;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.ScrollBar;
@@ -150,17 +158,20 @@ public class InputsPage implements FeaturePage {
                 rightHorizontal, leftHorizontal, splitVertical, splitHorizontal)) {
             spinner.setPrefWidth(130);
         }
-        early.add(Checks.expect("IntegerSpinnerValueFactory increment(3)", 57, () -> {
+        early.add(Checks.expect("IntegerSpinnerValueFactory increment(3) / clamp", "57 / 100", () -> {
             SpinnerValueFactory.IntegerSpinnerValueFactory factory = new SpinnerValueFactory.IntegerSpinnerValueFactory(
                     0, 100, 42, 5);
             factory.increment(3);
-            return factory.getValue();
-        }));
-        early.add(Checks.expect("IntegerSpinnerValueFactory max clamp", 100, () -> {
-            SpinnerValueFactory.IntegerSpinnerValueFactory factory = new SpinnerValueFactory.IntegerSpinnerValueFactory(
-                    0, 100, 42, 5);
+            int incremented = factory.getValue();
             factory.increment(50);
-            return factory.getValue();
+            return incremented + " / " + factory.getValue();
+        }));
+        early.add(Checks.expect("editable Spinner commitValue(\"13\")", 13, () -> {
+            Spinner<Integer> spinner = new Spinner<>(-50, 50, -7);
+            spinner.setEditable(true);
+            spinner.getEditor().setText("13");
+            spinner.commitValue();
+            return spinner.getValue();
         }));
         early.add(Checks.expect("DoubleSpinnerValueFactory converter", "0.25 > 0.3",
                 () -> {
@@ -179,14 +190,15 @@ public class InputsPage implements FeaturePage {
         }));
 
         // Sliders
-        Slider ticks = new Slider(0, 100, 35);
+        Slider ticks = ControlsUi.staticTicks(new Slider(0, 100, 35));
         ticks.setShowTickMarks(true);
         ticks.setShowTickLabels(true);
         ticks.setMajorTickUnit(25);
         ticks.setMinorTickCount(4);
         ticks.setSnapToTicks(true);
         ticks.setPrefWidth(260);
-        Slider formatted = new Slider(0, 1, 0.6);
+        Slider formatted = ControlsUi.staticTicks(new Slider(0, 1, 0.6));
+        formatted.setId("formatted-slider");
         formatted.setShowTickLabels(true);
         formatted.setShowTickMarks(true);
         formatted.setMajorTickUnit(0.25);
@@ -208,7 +220,7 @@ public class InputsPage implements FeaturePage {
         Slider disabledSlider = new Slider(0, 10, 7);
         disabledSlider.setDisable(true);
         disabledSlider.setPrefWidth(260);
-        Slider vertical = new Slider(0, 50, 20);
+        Slider vertical = ControlsUi.staticTicks(new Slider(0, 50, 20));
         vertical.setOrientation(Orientation.VERTICAL);
         vertical.setShowTickMarks(true);
         vertical.setShowTickLabels(true);
@@ -246,12 +258,14 @@ public class InputsPage implements FeaturePage {
         vbar.setMax(10);
         vbar.setValue(8);
         vbar.setVisibleAmount(3);
-        vbar.setPrefHeight(110);
+        vbar.setPrefHeight(84);
         Separator hsep = new Separator();
         hsep.setPrefWidth(200);
         Separator vsep = new Separator(Orientation.VERTICAL);
-        vsep.setPrefHeight(110);
-        VBox hStack = new VBox(10, caption("horizontal ScrollBar"), hbar, caption("horizontal Separator"), hsep);
+        vsep.setPrefHeight(84);
+        hbar.setPrefWidth(150);
+        hsep.setPrefWidth(150);
+        VBox hStack = new VBox(8, caption("horizontal ScrollBar"), hbar, caption("horizontal Separator"), hsep);
         HBox bars = new HBox(12, hStack, vbar, vsep);
         early.add(Checks.expect("ScrollBar increment / decrement", "30.0 > 31.0 > 30.0", () -> {
             ScrollBar bar = new ScrollBar();
@@ -285,7 +299,7 @@ public class InputsPage implements FeaturePage {
         integer.setText("0042");
         integer.commitValue();
         Label intValue = new Label();
-        intValue.textProperty().bind(intFormatter.valueProperty().asString("value = %d"));
+        intValue.textProperty().bind(intFormatter.valueProperty().asString(Locale.ROOT, "value = %d"));
         TextFormatter<Number> numberFormatter = new TextFormatter<>(
                 new NumberStringConverter(Locale.US, "#,##0.00"), 1234.5);
         TextField number = new TextField();
@@ -299,8 +313,8 @@ public class InputsPage implements FeaturePage {
         formatters.addRow(1, digits, upperCase);
         formatters.addRow(2, caption("IntegerStringConverter"), caption("NumberStringConverter #,##0.00"));
         formatters.addRow(3, new HBox(6, integer, intValue), number);
-        early.add(Checks.expect("TextFormatter filter (replaceText)", "1234", digits::getText));
-        early.add(Checks.expect("TextFormatter upper-case filter", "UPPER CASE FILTER", upperCase::getText));
+        early.add(Checks.expect("TextFormatter filters (digits / upper-case)", "1234 / UPPER CASE FILTER",
+                () -> digits.getText() + " / " + upperCase.getText()));
         early.add(Checks.expect("TextFormatter converter commit", "42 / 42",
                 () -> intFormatter.getValue() + " / " + integer.getText()));
         early.add(Checks.expect("TextFormatter setValue updates text", "1,234.50 > 7.00", () -> {
@@ -320,14 +334,16 @@ public class InputsPage implements FeaturePage {
                 grow(demo("TextArea : wrapped / scrolled (scrollTop, scrollLeft)", new HBox(8, wrapped, scrolled))));
         HBox row2 = new HBox(8, demo("Spinner : value factories and arrow styles", spinners),
                 grow(demo("Slider : horizontal / vertical", sliders)));
-        VBox left3 = new VBox(8, demo("TextFormatter : filters and value converters", formatters),
-                demo("ScrollBar / Separator", bars));
-        left3.setMinWidth(Region.USE_PREF_SIZE);
-        HBox row3 = new HBox(10, left3, grow(checks));
+        VBox formatterBox = demo("TextFormatter : filters and value converters", formatters);
+        formatterBox.setMinWidth(Region.USE_PREF_SIZE);
+        VBox barsBox = demo("ScrollBar / Separator", bars);
+        barsBox.setMinWidth(Region.USE_PREF_SIZE);
+        HBox row3 = new HBox(8, formatterBox, barsBox,
+                grow(demo("JavaBean property adapters (bean accessors found by reflection)", javaBeans(early))));
         HBox.setHgrow(wrapped, Priority.ALWAYS);
         HBox.setHgrow(scrolled, Priority.ALWAYS);
 
-        VBox root = ControlsUi.page(8, row1, row2, row3);
+        VBox root = ControlsUi.page(8, row1, row2, row3, checks);
         root.setPrefWidth(1028);
         return root;
     }
@@ -343,8 +359,74 @@ public class InputsPage implements FeaturePage {
             List<Check> late = new ArrayList<>();
             late.add(Checks.expect("TextArea scrollTop / scrollLeft", "120.0 / 40.0",
                     () -> scrolled.getScrollTop() + " / " + scrolled.getScrollLeft()));
-            holder.show("Checks", late);
+            // tick labels are Text nodes of the NumberAxis drawn by SliderSkin, fully opaque when not animated
+            late.add(Checks.run("rendered Slider tick labels / opacity", () -> {
+                Node axis = content.lookup("#formatted-slider").lookup(".axis");
+                List<String> texts = new ArrayList<>();
+                double opacity = 1;
+                for (Node node : ((javafx.scene.Parent) axis).getChildrenUnmodifiable()) {
+                    if (node instanceof javafx.scene.text.Text text && text.isVisible()) {
+                        texts.add(text.getText());
+                        opacity = Math.min(opacity, text.getOpacity());
+                    }
+                }
+                return String.join(" ", texts) + " / " + opacity;
+            }));
+            holder.show("Checks", late, 2);
         }, Fx.FX_THREAD);
+    }
+
+    /**
+     * Controls bound bidirectionally to the properties of a plain JavaBean through the JavaBean property adapters.
+     * Failures (e.g. accessors not reachable by reflection in a native image) are reported as checks.
+     */
+    private static Node javaBeans(List<Check> early) {
+        ProfileBean bean = new ProfileBean();
+        TextField name = new TextField();
+        name.setPrefColumnCount(10);
+        Slider age = new Slider(0, 100, 0);
+        age.setPrefWidth(140);
+        Label ageValue = new Label();
+        CheckBox subscribed = new CheckBox("subscribed");
+        Label beanText = new Label();
+        beanText.getStyleClass().add("status-label");
+        GridPane grid = new GridPane(8, 5);
+        grid.addRow(0, caption("JavaBeanStringProperty"), name);
+        grid.addRow(1, caption("JavaBeanIntegerProperty"), new HBox(6, age, ageValue));
+        grid.addRow(2, caption("JavaBeanBooleanProperty"), subscribed);
+        grid.add(beanText, 0, 3, 2, 1);
+        try {
+            JavaBeanStringProperty nameProperty = JavaBeanStringPropertyBuilder.create().bean(bean).name("name")
+                    .build();
+            JavaBeanIntegerProperty ageProperty = JavaBeanIntegerPropertyBuilder.create().bean(bean).name("age")
+                    .build();
+            JavaBeanBooleanProperty subscribedProperty = JavaBeanBooleanPropertyBuilder.create().bean(bean)
+                    .name("subscribed").build();
+            // the controls keep the adapters reachable (bidirectional bindings only hold weak references)
+            grid.getProperties().put("adapters", List.of(nameProperty, ageProperty, subscribedProperty));
+            name.textProperty().bindBidirectional(nameProperty);
+            age.valueProperty().bindBidirectional(ageProperty);
+            subscribed.selectedProperty().bindBidirectional(subscribedProperty);
+            ageValue.textProperty().bind(ageProperty.asString(Locale.ROOT, "%d years"));
+            beanText.textProperty().bind(Bindings.createStringBinding(() -> "bean.toString() = " + bean,
+                    nameProperty, ageProperty, subscribedProperty));
+            early.add(Checks.expect("JavaBean adapters read the bean", "Ada Lovelace / 36 / false",
+                    () -> name.getText() + " / " + (int) age.getValue() + " / " + subscribed.isSelected()));
+            early.add(Checks.expect("JavaBean adapters: control -> bean setter", "Grace Hopper, 42", () -> {
+                name.setText("Grace Hopper");
+                age.setValue(42);
+                return bean.getName() + ", " + bean.getAge();
+            }));
+            early.add(Checks.expect("JavaBean adapters: bean event -> control", "true / Grace Hopper, 42, subscribed",
+                    () -> {
+                        bean.setSubscribed(true);
+                        return subscribed.isSelected() + " / " + beanText.getText().replace("bean.toString() = ", "");
+                    }));
+        } catch (Throwable t) {
+            early.add(Check.fail("JavaBean adapters", Checks.describe(t)));
+            beanText.setText("JavaBean adapters failed : " + t.getClass().getSimpleName());
+        }
+        return grid;
     }
 
     private static TextFormatter.Change filtered(TextFormatter.Change change, String text) {
