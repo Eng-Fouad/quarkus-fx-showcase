@@ -4,6 +4,8 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletionStage;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import jakarta.inject.Singleton;
 
@@ -13,6 +15,7 @@ import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
 import javafx.css.CssParser;
+import javafx.css.FontFace;
 import javafx.css.Stylesheet;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -142,7 +145,8 @@ public class TextFontsPage implements FeaturePage {
             Text t = new Text(family + " Aa Gg 123");
             t.setFont(font);
             families.add(t, i % 3, i / 3);
-            resolved.add(family + "→" + font.getName());
+            // the requested family is implied by the order (the grid above), unless the name does not start with it
+            resolved.add(font.getName().startsWith(family) ? font.getName() : family + "→" + font.getName());
         }
         VBox familiesTile = Ui.tile("System and logical families, Font.font(family, 15) (NoSuchFamily falls back)",
                 families);
@@ -151,26 +155,27 @@ public class TextFontsPage implements FeaturePage {
         cssRoboto.getStyleClass().add("roboto-css");
         Label cssAwesome = new Label("\uf015 \uf004 \uf013 \uf0e0 \uf007");
         cssAwesome.getStyleClass().add("awesome-css");
+        Label cssFace = new Label("Showcase Face, loaded only by @font-face");
+        cssFace.getStyleClass().add("face-css");
         Label cssShorthand = new Label("-fx-font: bold italic 16px Georgia");
         cssShorthand.getStyleClass().add("font-shorthand-css");
         VBox cssTile = Ui.grow(Ui.tile("Stylesheet fonts.css : @font-face url(..), -fx-font-family, -fx-font", cssRoboto,
-                cssAwesome, cssShorthand));
+                cssAwesome, cssFace, cssShorthand));
         cssTile.getStylesheets().add(Fx.resourceUrl(STYLESHEET));
         HBox row3 = new HBox(8, familiesTile, cssTile);
 
         // Checks
         checks.add(Checks.run("Font.getFontNames(Roboto / Roboto Light / FA)", () -> Font.getFontNames("Roboto")
                 + " / " + Font.getFontNames("Roboto Light") + " / " + Font.getFontNames("Font Awesome 5 Free Solid")));
+        // Font.getFamilies() is computed once (static cache in PrismFontFactory) : fonts loaded after the first call,
+        // by any page, are missing from it. Only system families are checked, loaded fonts use getFontNames(family)
         checks.add(Checks.expect("Font.getFamilies() contains", "Helvetica=true, Menlo=true, Times New Roman=true, "
-                + "Roboto=true, Droid Arabic Kufi=true, Font Awesome 5 Free Solid=true", () -> {
+                + "Geeza Pro=true, Hiragino Sans=true", () -> {
                     List<String> all = Font.getFamilies();
-                    return String.join(", ", List.of("Helvetica", "Menlo", "Times New Roman", "Roboto",
-                            "Droid Arabic Kufi", "Font Awesome 5 Free Solid").stream().map(f -> f + "=" + all.contains(f))
-                            .toList());
+                    return String.join(", ", List.of("Helvetica", "Menlo", "Times New Roman", "Geeza Pro",
+                            "Hiragino Sans").stream().map(f -> f + "=" + all.contains(f)).toList());
                 }));
-        checks.add(Check.info("Font.font(family, 15).getName() (1)", String.join(", ", resolved.subList(0, 8))));
-        checks.add(Check.info("Font.font(family, 15).getName() (2)", String.join(", ", resolved.subList(8,
-                resolved.size()))));
+        checks.add(Check.info("Font.font(family, 15).getName()", String.join(", ", resolved)));
         checks.add(Checks.run("Font.font(family, weight, posture, 14).getName()", () -> String.join(", ",
                 Font.font("Helvetica", FontWeight.BOLD, FontPosture.ITALIC, 14).getName(),
                 Font.font("Times New Roman", FontWeight.BOLD, FontPosture.REGULAR, 14).getName(),
@@ -189,10 +194,24 @@ public class TextFontsPage implements FeaturePage {
                     12);
             return fromPng + " / " + missing;
         }));
-        checks.add(Checks.run("CssParser.parse(fonts.css)", () -> {
-            Stylesheet sheet = new CssParser().parse(Fx.resource(STYLESHEET));
-            return sheet.getFontFaces().size() + " @font-face, " + sheet.getRules().size() + " rules";
-        }));
+        checks.add(Checks.expect("CssParser: rules, @font-face src (resolved)",
+                "4 rules: showcase/fonts/Roboto-Light.ttf, showcase/fonts/fa-solid-900.ttf, "
+                        + "showcase/text/ShowcaseFace-Light.ttf",
+                () -> {
+                    Stylesheet sheet = new CssParser().parse(Fx.resource(STYLESHEET));
+                    List<String> sources = new ArrayList<>();
+                    for (FontFace face : sheet.getFontFaces()) {
+                        // FontFaceImpl.toString : ... src : URL "<resolved url>", ...
+                        Matcher m = Pattern.compile("URL \"([^\"]*)\"").matcher(face.toString());
+                        while (m.find()) {
+                            // the part before showcase/ depends on the runtime (jar: or resource: URL)
+                            String url = m.group(1);
+                            int index = url.indexOf("showcase/");
+                            sources.add(index < 0 ? "?" + url.substring(url.indexOf(':') + 1) : url.substring(index));
+                        }
+                    }
+                    return sheet.getRules().size() + " rules: " + String.join(", ", sources);
+                }));
 
         VBox checksHolder = new VBox(Checks.view("Font loading and resolution", checks));
         VBox root = new VBox(8, row1, iconTile, row3, checksHolder);
@@ -201,14 +220,19 @@ public class TextFontsPage implements FeaturePage {
 
         CompletionStage<?> ready = Fx.pulses(2).thenRun(() -> {
             List<Check> all = new ArrayList<>(checks);
-            all.add(Check.info("fonts of the CSS styled labels", String.join(", ", cssRoboto.getFont().getName() + " "
-                    + Ui.num(cssRoboto.getFont().getSize()), cssAwesome.getFont().getName() + " "
-                            + Ui.num(cssAwesome.getFont().getSize()),
-                    cssShorthand.getFont().getName() + " " + Ui.num(cssShorthand.getFont().getSize()))));
+            // Showcase Face falls back to the System font if its @font-face was not loaded
+            all.add(Checks.expect("fonts of the CSS styled labels", "Roboto Light 18.0, Font Awesome 5 Free Solid 22.0, "
+                    + "Showcase Face Light 18.0 [Showcase Face Light], Georgia Bold Italic 16.0",
+                    () -> String.join(", ", name(cssRoboto), name(cssAwesome), name(cssFace) + " "
+                            + Font.getFontNames("Showcase Face"), name(cssShorthand))));
             checksHolder.getChildren().setAll(Checks.view("Font loading and resolution", all));
         });
         root.getProperties().put(READY, ready);
         return root;
+    }
+
+    private static String name(Label label) {
+        return label.getFont().getName() + " " + Ui.num(label.getFont().getSize());
     }
 
     @Override
