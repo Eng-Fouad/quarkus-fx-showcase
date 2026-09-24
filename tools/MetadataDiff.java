@@ -22,7 +22,7 @@ import java.util.stream.Stream;
  * Diffs the reachability metadata recorded by the GraalVM tracing agent (JVM run of the showcase) against what the
  * quarkus-fx extension registers for macOS.
  * <p>
- * usage: java tools/MetadataDiff.java reachability-metadata.json [platform=mac] [javafx.version=25.0.4]
+ * usage: java tools/MetadataDiff.java reachability-metadata.json [platform, default: current] [javafx.version=25.0.4]
  */
 public class MetadataDiff {
 
@@ -30,9 +30,9 @@ public class MetadataDiff {
 
     public static void main(String[] args) throws Exception {
         Path metadata = Path.of(args[0]);
-        String platform = args.length > 1 ? args[1] : "mac";
+        String platform = args.length > 1 ? args[1] : currentPlatform();
         String fxVersion = args.length > 2 ? args[2] : "25.0.4";
-        String prefix = platform.equals("mac") ? "MAC" : platform.equals("win") ? "WINDOWS" : "LINUX";
+        String prefix = platform.startsWith("mac") ? "MAC" : platform.startsWith("win") ? "WINDOWS" : "LINUX";
 
         // Extension lists, read from the installed deployment jar
         Path deploymentJar = M2.resolve("io/quarkiverse/fx/quarkus-fx-deployment/999-SNAPSHOT/quarkus-fx-deployment-999-SNAPSHOT.jar");
@@ -293,5 +293,21 @@ public class MetadataDiff {
 
     static List<String> both(String[] a, String[] b) {
         return Stream.concat(Stream.of(nonNull(a)), Stream.of(nonNull(b))).toList();
+    }
+
+    /**
+     * The JavaFX platform classifier of the current machine (mac, mac-aarch64, win, linux, linux-aarch64).
+     */
+    static String currentPlatform() {
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        String arch = System.getProperty("os.arch", "");
+        boolean aarch64 = arch.contains("aarch64") || arch.contains("arm");
+        if (os.startsWith("mac")) {
+            return aarch64 ? "mac-aarch64" : "mac";
+        }
+        if (os.startsWith("windows")) {
+            return "win";
+        }
+        return aarch64 ? "linux-aarch64" : "linux";
     }
 }

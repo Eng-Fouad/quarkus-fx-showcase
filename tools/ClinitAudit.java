@@ -35,7 +35,7 @@ import org.objectweb.asm.Opcodes;
  * environment reads (values frozen at build time), resource bundles (locale frozen at build time), and
  * initialization of classes the extension initializes at run time.
  * <p>
- * usage: java -cp asm.jar tools/ClinitAudit.java [platform=mac] [javafx.version=25.0.4] [class_initialization_report.csv]
+ * usage: java -cp asm.jar tools/ClinitAudit.java [platform, default: current] [javafx.version=25.0.4] [class_initialization_report.csv]
  */
 public class ClinitAudit {
 
@@ -63,10 +63,10 @@ public class ClinitAudit {
     static final Set<String> classesWithClinit = new HashSet<>();
 
     public static void main(String[] args) throws Exception {
-        String platform = args.length > 0 ? args[0] : "mac";
+        String platform = args.length > 0 ? args[0] : currentPlatform();
         String fxVersion = args.length > 1 ? args[1] : "25.0.4";
         Path report = args.length > 2 ? Path.of(args[2]) : null;
-        String prefix = platform.equals("mac") ? "MAC" : platform.equals("win") ? "WINDOWS" : "LINUX";
+        String prefix = platform.startsWith("mac") ? "MAC" : platform.startsWith("win") ? "WINDOWS" : "LINUX";
 
         for (String module : List.of("base", "graphics", "controls", "fxml", "media", "web", "swing")) {
             Path jar = M2.resolve("org/openjfx/javafx-" + module + "/" + fxVersion + "/javafx-" + module + "-" + fxVersion + "-"
@@ -389,5 +389,21 @@ public class ClinitAudit {
             all.addAll(List.of(b));
         }
         return all;
+    }
+
+    /**
+     * The JavaFX platform classifier of the current machine (mac, mac-aarch64, win, linux, linux-aarch64).
+     */
+    static String currentPlatform() {
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        String arch = System.getProperty("os.arch", "");
+        boolean aarch64 = arch.contains("aarch64") || arch.contains("arm");
+        if (os.startsWith("mac")) {
+            return aarch64 ? "mac-aarch64" : "mac";
+        }
+        if (os.startsWith("windows")) {
+            return "win";
+        }
+        return aarch64 ? "linux-aarch64" : "linux";
     }
 }
