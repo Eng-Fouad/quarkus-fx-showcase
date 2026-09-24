@@ -271,8 +271,9 @@ public class Compare {
             String file = r.file.contains(" (") ? r.file.substring(0, r.file.indexOf(" (")) : r.file;
             html.append("<h3 id='").append(esc(r.file)).append("'>").append(esc(r.file)).append(" <span class='")
                     .append(r.status).append("'>").append(r.status).append("</span></h3><div class='row'>");
-            figure(html, out.relativize(a.resolve(file)), "A " + ra.get("runtime"));
-            figure(html, out.relativize(b.resolve(file)), "B " + rb.get("runtime"));
+            Path base = out.toAbsolutePath().normalize();
+            figure(html, base.relativize(a.resolve(file).toAbsolutePath().normalize()), "A " + ra.get("runtime"));
+            figure(html, base.relativize(b.resolve(file).toAbsolutePath().normalize()), "B " + rb.get("runtime"));
             if (r.diffFile != null) {
                 figure(html, Path.of(r.diffFile), "differences (red)");
             }
