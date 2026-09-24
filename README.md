@@ -55,6 +55,18 @@ Pages must be deterministic (no running animation, clock, randomness, caret or h
 pixels. Differences of at most 2 levels per channel on less than 0.5% of the pixels are reported as floating point
 noise: the same differences appear between two JVM runs using different execution modes (JIT vs `-Xint`).
 
+## Application-level native configuration
+
+Everything JavaFX needs in a native executable comes from quarkus-fx, except what depends on the application itself:
+
+- `@RegisterForReflection` on the application classes JavaFX reaches by reflection (models of `PropertyValueFactory`,
+  JavaBean property adapters, FXML controllers and custom components)
+- `src/main/resources/META-INF/native-image/io.quarkiverse.fx.showcase/quarkus-fx-showcase/`: JNI access for the Java
+  objects exposed to JavaScript in a WebView, serialization of the clipboard custom format, and the Hijrah calendar data
+  (with `JavaHomeFeature`, a workaround for [oracle/graal#11410](https://github.com/oracle/graal/issues/11410))
+- `WebKitNativeSupport`: on macOS, `libjfxwebkit.dylib` links to `libjvm.dylib` without using it, an empty stand-in is
+  installed next to it so that WebView loads in native executables
+
 ## Native image configuration tools
 
 - `java tools/Cycle.java <label> --trace`: also runs the JVM snapshots under the GraalVM tracing agent, then
