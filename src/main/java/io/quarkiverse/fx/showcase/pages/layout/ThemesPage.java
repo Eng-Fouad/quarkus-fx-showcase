@@ -13,10 +13,12 @@ import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import javafx.application.Application;
 import javafx.collections.FXCollections;
+import javafx.css.Stylesheet;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.SubScene;
+import javafx.scene.chart.Axis;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ChoiceBox;
@@ -34,6 +36,7 @@ import javafx.scene.control.TabPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
+import javafx.scene.control.skin.SliderSkin;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 
@@ -103,6 +106,8 @@ public class ThemesPage implements FeaturePage {
                 }
                 return path.substring(path.lastIndexOf('/') + 1);
             }));
+            left.add(Checks.run("loadBinary rules (modena, caspian, bow .bss)", () -> rules(MODENA) + ", "
+                    + rules(CASPIAN) + ", " + rules("com/sun/javafx/scene/control/skin/modena/blackOnWhite.css")));
             left.add(Check.info("Application.getUserAgentStylesheet()", Application.getUserAgentStylesheet()));
             List<Check> right = new ArrayList<>();
             right.add(Check.info("Modena button / root fills", describe(modena)));
@@ -112,6 +117,17 @@ public class ThemesPage implements FeaturePage {
             Kit.fillChecks(checks, "Theme stylesheets", left, "Resolved theme colors", right);
         });
         return root;
+    }
+
+    /**
+     * Rule count of the binary version (.bss) of a theme stylesheet, as StyleManager loads it.
+     */
+    private static int rules(String cssPath) throws java.io.IOException {
+        URL bss = Control.class.getResource("/" + cssPath.replace(".css", ".bss"));
+        if (bss == null) {
+            throw new java.io.FileNotFoundException(cssPath.replace(".css", ".bss"));
+        }
+        return Stylesheet.loadBinary(bss).getRules().size();
     }
 
     private static boolean exists(String path) {
@@ -176,6 +192,13 @@ public class ThemesPage implements FeaturePage {
         slider.setShowTickLabels(true);
         slider.setMajorTickUnit(25);
         slider.setPrefWidth(290);
+        // SliderSkin draws the ticks with a NumberAxis, animated by default : its tick labels fade in over 750ms once
+        // the slider is shown, and a snapshot would catch that fade at a timing dependent opacity. The skin is created
+        // here to switch the axis animation off.
+        slider.setSkin(new SliderSkin(slider));
+        if (slider.lookup(".axis") instanceof Axis<?> axis) {
+            axis.setAnimated(false);
+        }
         ProgressBar progress = new ProgressBar(0.6);
         progress.setPrefWidth(200);
         Spinner<Integer> spinner = new Spinner<>(0, 10, 3);

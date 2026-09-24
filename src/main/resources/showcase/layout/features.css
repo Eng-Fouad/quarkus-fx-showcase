@@ -308,3 +308,15 @@
     -fx-padding: 0.5em;
     -fx-font-size: 11px;
 }
+
+/* ---- stylesheet sources (class path name, data: URIs, binary, inline url) ---- */
+.source-row {
+    -fx-min-width: 226;
+    -fx-pref-width: 226;
+    -fx-max-width: 226;
+    -fx-min-height: 24;
+    -fx-pref-height: 24;
+    -fx-max-height: 24;
+    -fx-padding: 0 6 0 6;
+    -fx-font-size: 10px;
+}

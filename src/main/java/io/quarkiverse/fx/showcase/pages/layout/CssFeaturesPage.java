@@ -1,7 +1,13 @@
 package io.quarkiverse.fx.showcase.pages.layout;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
@@ -15,7 +21,6 @@ import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
 import javafx.css.CssParser;
 import javafx.css.PseudoClass;
-import javafx.css.Rule;
 import javafx.css.Stylesheet;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -35,7 +40,7 @@ import javafx.scene.text.Font;
 public class CssFeaturesPage implements FeaturePage {
 
     private static final double W = 248;
-    private static final double H = 140;
+    private static final double H = 132;
 
     static final PseudoClass WARNING = PseudoClass.getPseudoClass("warning");
     static final PseudoClass DONE = PseudoClass.getPseudoClass("done");
@@ -95,7 +100,6 @@ public class CssFeaturesPage implements FeaturePage {
         }
         Label deriveMinus40 = derive40;
         derived.setAlignment(Pos.CENTER);
-        Node deriveDemo = Kit.demo("derive(#1e88e5, -80% .. +80%) · ladder() text", W, H, derived);
 
         // 3. ladder()
         HBox ladderText = new HBox(2);
@@ -104,15 +108,38 @@ public class CssFeaturesPage implements FeaturePage {
         for (int i = 1; i <= 5; i++) {
             Label swatch = styled(new Label("Aa"), "swatch", "ladder-" + i);
             swatch.setAlignment(Pos.CENTER);
-            swatch.setStyle("-fx-font-size: 12px; -fx-pref-width: 40;");
+            swatch.setStyle("-fx-font-size: 12px; -fx-pref-width: 40; -fx-min-height: 28; -fx-pref-height: 28;");
             ladders.add(swatch);
             ladderText.getChildren().add(swatch);
             ladderBg.getChildren().add(styled(new Region(), "ladder-bg", "ladder-" + i));
         }
-        VBox ladderBox = new VBox(8, ladderText, ladderBg);
-        ladderBox.setAlignment(Pos.CENTER);
-        ladderBox.setFillWidth(false);
-        Node ladderDemo = Kit.demo("ladder() · text fill and background by brightness", W, H, ladderBox);
+        ladderText.setAlignment(Pos.CENTER);
+        ladderBg.setAlignment(Pos.CENTER);
+        VBox deriveBox = new VBox(6, derived, ladderText, ladderBg);
+        deriveBox.setAlignment(Pos.CENTER);
+        Node deriveDemo = Kit.demo("derive(#1e88e5, -80%..+80%) · ladder() text and fill", W, H, deriveBox);
+
+        // stylesheet sources : class path name without scheme, data: URIs (text and binary), inline url()
+        Label classpathSheet = styled(new Label("\"showcase/layout/sources.css\""), "source-row", "classpath-css");
+        // no scheme : StyleManager looks the stylesheet (.bss first, then .css) up through the context class loader
+        classpathSheet.getStylesheets().add("showcase/layout/sources.css");
+        Label dataSheet = styled(new Label("data:text/css + data:image/png"), "source-row", "data-css");
+        Check dataSheetCheck = Checks.run("data:text/css stylesheet (chars)", () -> {
+            String uri = dataStylesheet();
+            dataSheet.getStylesheets().add(uri);
+            return uri.startsWith("data:text/css;charset=utf-8;base64,") + " " + uri.length();
+        });
+        Label binarySheet = styled(new Label("binary .bss (convertToBinary)"), "source-row", "binary-css");
+        Check binaryCheck = Checks.run("Stylesheet.convertToBinary + loadBinary", () -> binaryStylesheet(binarySheet));
+        Label inlineUrl = styled(new Label("inline url(\"/showcase/…\")"), "source-row");
+        // an inline style has no stylesheet url : a relative url() is resolved by the context class loader
+        inlineUrl.setStyle("-fx-background-color: #eceff1; -fx-text-fill: #37474f; -fx-border-color: #b0bec5;"
+                + " -fx-background-image: url(\"/showcase/images/tile.png\"); -fx-background-size: 20 20;"
+                + " -fx-background-repeat: no-repeat; -fx-background-position: right 3 center;");
+        VBox sources = new VBox(6, classpathSheet, dataSheet, binarySheet, inlineUrl);
+        sources.setAlignment(Pos.CENTER);
+        sources.setFillWidth(false);
+        Node sourcesDemo = Kit.demo("Stylesheet sources · class path, data: URI, .bss, inline", W, H, sources);
 
         // 4. linear-gradient
         Region lgRight = styled(new Label("to right"), "gradient", "lg-right");
@@ -147,12 +174,16 @@ public class CssFeaturesPage implements FeaturePage {
         Label toggled = styled(new Label("set, then cleared"), "state-box");
         toggled.pseudoClassStateChanged(WARNING, true);
         toggled.pseudoClassStateChanged(WARNING, false);
+        // styled as :warning first, then switched to :done once shown (restyled by a later CSS pass)
+        Label afterShow = styled(new Label(":warning → :done"), "state-box");
+        afterShow.pseudoClassStateChanged(WARNING, true);
         GridPane states = new GridPane(8, 8);
         states.add(plain, 0, 0);
         states.add(warning, 1, 0);
         states.add(done, 0, 1);
         states.add(both, 1, 1);
         states.add(toggled, 0, 2);
+        states.add(afterShow, 1, 2);
         states.setAlignment(Pos.CENTER);
         Node statesDemo = Kit.demo("PseudoClass.getPseudoClass() toggled from code", W, H, states);
 
@@ -227,59 +258,126 @@ public class CssFeaturesPage implements FeaturePage {
         Node inlineDemo = Kit.demo("Inline styles · override stylesheet, em units", W, H, inlines);
 
         GridPane demos = Kit.grid(4, W, 12, 8);
-        Kit.addAll(demos, 4, lookupDemo, deriveDemo, ladderDemo, linearDemo, radialDemo, statesDemo, selectorsDemo, shapeDemo,
-                urlDemo, fontDemo, importDemo, inlineDemo);
+        Kit.addAll(demos, 4, lookupDemo, deriveDemo, linearDemo, radialDemo, statesDemo, selectorsDemo, shapeDemo, urlDemo,
+                fontDemo, importDemo, sourcesDemo, inlineDemo);
 
         HBox checks = Kit.checksRow(1028);
         root.getChildren().addAll(demos, checks);
 
         Kit.whenShown(root, 3, () -> {
-            List<Check> left = new ArrayList<>();
-            left.add(Check.info("looked-up -accent (page/class/inline)",
-                    Kit.fill(accent) + " / " + Kit.fill(overridden) + " / " + Kit.fill(inlineAccent)));
-            left.add(Check.info("derive(#1e88e5, -40%)", Kit.fill(deriveMinus40)));
-            left.add(Check.info("ladder() text fills",
-                    ladders.stream().map(l -> Kit.paint(l.getTextFill())).collect(Collectors.joining(" "))));
-            left.add(Checks.run("gradients", () -> Kit.fill(lgRight) + " (" + ((javafx.scene.paint.LinearGradient) lgRight
-                    .getBackground().getFills().get(0).getFill()).getStops().size() + " stops), "
-                    + Kit.fill(rgFocus) + " focus "
-                    + Kit.num(((javafx.scene.paint.RadialGradient) rgFocus.getBackground().getFills().get(0).getFill())
-                            .getFocusAngle())));
-            left.add(Checks.run("pseudo-class states", () -> both.getPseudoClassStates().stream()
-                    .map(PseudoClass::getPseudoClassName).sorted().collect(Collectors.joining(", ")) + " · border "
-                    + Kit.paint(both.getBorder().getStrokes().get(0).getTopStroke()) + " dashes "
-                    + both.getBorder().getStrokes().get(0).getTopStyle().getDashArray().size()));
-            left.add(Check.info("selectors (child/desc/compound/id)",
-                    Kit.fill(child) + " " + Kit.fill(descendant) + " " + Kit.fill(special) + " " + Kit.fill(unique)));
-            left.add(Checks.expect("-fx-shape", "SVGPath SVGPath", () -> shapeName(star) + " " + shapeName(bordered)));
-            List<Check> right = new ArrayList<>();
-            right.add(Checks.expect("url() background · -fx-graphic · -fx-image", "256x256 · 16x16 · 64x64",
-                    () -> imageSize(texture.getBackground().getImages().get(0).getImage()) + " · "
-                            + imageSize(((ImageView) graphic.getGraphic()).getImage()) + " · "
-                            + imageSize(imageView.getImage())));
-            right.add(Checks.run("@font-face fonts", () -> roboto.getFont().getName() + " / " + awesome.getFont().getName()));
-            right.add(Checks.expect("@import rules", "#5e35b1 · #2e7d32 · #3949ab",
-                    () -> Kit.fill(imported) + " · " + Kit.fill(importedOverridden) + " · " + Kit.fill(usesImported)));
-            right.add(Checks.expect("inline style parsed", "4 declarations", () -> {
-                Stylesheet sheet = new CssParser().parseInlineStyle(inline);
-                return sheet.getRules().stream().mapToInt(rule -> rule.getDeclarations().size()).sum() + " declarations";
-            }));
-            right.add(Checks.run("CssParser.parse(features.css)", () -> {
-                int mark = Kit.cssErrorMark();
-                URL url = Fx.resource("/showcase/layout/features.css");
-                Stylesheet sheet = new CssParser().parse(url);
-                List<Rule> rules = sheet.getRules();
-                return rules.size() + " rules, " + sheet.getFontFaces().size() + " @font-face, errors "
-                        + Kit.cssErrorsSince(mark).size();
-            }));
-            right.add(Checks.run("families loaded by @font-face", () -> Font.getFamilies().stream()
-                    .filter(f -> f.contains("Roboto") || f.contains("Awesome")).sorted().collect(Collectors.joining(", "))
-                    + " | " + Font.getFontNames().stream().filter(f -> f.contains("Roboto") || f.contains("Awesome")).sorted()
-                            .collect(Collectors.joining(", "))));
-            right.add(Kit.cssErrorsCheck("CSS errors on this page", cssMark));
-            Kit.fillChecks(checks, "Resolved values", left, "Resources and parsing", right);
+            // pseudo-class change on a node that was already styled : restyled on the next pulses
+            afterShow.pseudoClassStateChanged(WARNING, false);
+            afterShow.pseudoClassStateChanged(DONE, true);
+            return Fx.pulses(2).thenRun(() -> {
+                List<Check> left = new ArrayList<>();
+                left.add(Check.info("looked-up -accent (page/class/inline)",
+                        Kit.fill(accent) + " / " + Kit.fill(overridden) + " / " + Kit.fill(inlineAccent)));
+                left.add(Check.info("derive(#1e88e5, -40%)", Kit.fill(deriveMinus40)));
+                left.add(Check.info("ladder() text fills",
+                        ladders.stream().map(l -> Kit.paint(l.getTextFill())).collect(Collectors.joining(" "))));
+                left.add(Checks.run("gradients", () -> Kit.fill(lgRight) + " (" + ((javafx.scene.paint.LinearGradient) lgRight
+                        .getBackground().getFills().get(0).getFill()).getStops().size() + " stops), "
+                        + Kit.fill(rgFocus) + " focus "
+                        + Kit.num(((javafx.scene.paint.RadialGradient) rgFocus.getBackground().getFills().get(0).getFill())
+                                .getFocusAngle())));
+                left.add(Checks.run("pseudo-class states", () -> both.getPseudoClassStates().stream()
+                        .map(PseudoClass::getPseudoClassName).sorted().collect(Collectors.joining(", ")) + " · border "
+                        + Kit.paint(both.getBorder().getStrokes().get(0).getTopStroke()) + " dashes "
+                        + both.getBorder().getStrokes().get(0).getTopStyle().getDashArray().size()));
+                left.add(Checks.expect("pseudo-class switched after show", "#c8e6c9 #1b5e20",
+                        () -> Kit.fill(afterShow) + " " + Kit.paint(afterShow.getTextFill())));
+                left.add(Check.info("selectors (child/desc/compound/id)",
+                        Kit.fill(child) + " " + Kit.fill(descendant) + " " + Kit.fill(special) + " " + Kit.fill(unique)));
+                left.add(Checks.expect("-fx-shape", "SVGPath SVGPath", () -> shapeName(star) + " " + shapeName(bordered)));
+                left.add(Checks.expect("url() background · -fx-graphic · -fx-image", "256x256 · 16x16 · 64x64",
+                        () -> imageSize(texture.getBackground().getImages().get(0).getImage()) + " · "
+                                + imageSize(((ImageView) graphic.getGraphic()).getImage()) + " · "
+                                + imageSize(imageView.getImage())));
+                List<Check> right = new ArrayList<>();
+                right.add(Checks.run("@font-face fonts", () -> roboto.getFont().getName() + " / "
+                        + awesome.getFont().getName()));
+                right.add(Checks.run("families loaded by @font-face", () -> Font.getFamilies().stream()
+                        .filter(f -> f.contains("Roboto") || f.contains("Awesome")).sorted()
+                        .collect(Collectors.joining(", "))));
+                right.add(Checks.expect("@import rules", "#5e35b1 · #2e7d32 · #3949ab",
+                        () -> Kit.fill(imported) + " · " + Kit.fill(importedOverridden) + " · " + Kit.fill(usesImported)));
+                right.add(Checks.run("CssParser parse(url) · parseInlineStyle", () -> {
+                    int mark = Kit.cssErrorMark();
+                    URL url = Fx.resource("/showcase/layout/features.css");
+                    Stylesheet sheet = new CssParser().parse(url);
+                    Stylesheet inlineSheet = new CssParser().parseInlineStyle(inline);
+                    return sheet.getRules().size() + " rules, " + sheet.getFontFaces().size() + " @font-face, errors "
+                            + Kit.cssErrorsSince(mark).size() + " · inline " + declarations(inlineSheet) + " decl.";
+                }));
+                right.add(Checks.expect("class path stylesheet · inline url()", "#ef6c00 16x16 · 32x32",
+                        () -> Kit.fill(classpathSheet) + " " + graphicSize(classpathSheet) + " · "
+                                + imageSize(inlineUrl.getBackground().getImages().get(0).getImage())));
+                right.add(dataSheetCheck.ok() == Boolean.FALSE ? dataSheetCheck
+                        : Checks.expect("data: stylesheet · data: image", "#8e24aa 16x16",
+                                () -> Kit.fill(dataSheet) + " " + graphicSize(dataSheet)));
+                right.add(binaryCheck.ok() == Boolean.FALSE ? binaryCheck
+                        : Checks.expect("convertToBinary · data: .bss applied", "rules/decl. 1/12 · #004d40 3 fills, 1 border",
+                                () -> binaryCheck.value() + " · " + Kit.fill(binarySheet) + " "
+                                        + binarySheet.getBackground().getFills().size() + " fills, "
+                                        + binarySheet.getBorder().getStrokes().size() + " border"));
+                right.add(Kit.cssErrorsCheck("CSS errors on this page", cssMark));
+                Kit.fillChecks(checks, "Resolved values", left, "Resources and parsing", right);
+            });
         });
         return root;
+    }
+
+    /**
+     * A stylesheet given as a {@code data:text/css} URI, with an image given as a {@code data:image/png} URI.
+     */
+    private static String dataStylesheet() throws Exception {
+        String icon;
+        try (InputStream in = Fx.resource("/showcase/images/icon-16.png").openStream()) {
+            icon = Base64.getEncoder().encodeToString(in.readAllBytes());
+        }
+        String css = """
+                .data-css {
+                    -fx-background-color: #8e24aa, linear-gradient(to bottom right, #8e24aa, #ce93d8);
+                    -fx-background-insets: 0, 1 1 1 24;
+                    -fx-background-radius: 4, 0 4 4 0;
+                    -fx-text-fill: #ffffff;
+                    -fx-graphic: url("data:image/png;base64,%s");
+                    -fx-graphic-text-gap: 10;
+                }
+                """.formatted(icon);
+        return "data:text/css;charset=utf-8;base64," + Base64.getEncoder().encodeToString(css.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Converts layout-binary.css to the binary format, reads it back from the file and from a stream, and applies it as
+     * a {@code data:application/octet-stream} stylesheet. Returns the rule and declaration counts of the text and binary
+     * versions.
+     */
+    private static String binaryStylesheet(Label target) throws Exception {
+        Path source = Fx.resourceToTempFile("/showcase/layout/layout-binary.css");
+        Path binary = source.resolveSibling("layout-binary.bss");
+        Files.deleteIfExists(binary);
+        Stylesheet.convertToBinary(source.toFile(), binary.toFile());
+        byte[] bytes = Files.readAllBytes(binary);
+        Stylesheet parsed = new CssParser().parse(Fx.resource("/showcase/layout/layout-binary.css"));
+        Stylesheet fromFile = Stylesheet.loadBinary(binary.toUri().toURL());
+        Stylesheet fromStream = Stylesheet.loadBinary(new ByteArrayInputStream(bytes));
+        target.getStylesheets().add("data:application/octet-stream;base64," + Base64.getEncoder().encodeToString(bytes));
+        String counts = parsed.getRules().size() + "/" + declarations(parsed) + " → " + fromFile.getRules().size() + "/"
+                + declarations(fromFile) + ", " + fromStream.getRules().size() + "/" + declarations(fromStream);
+        if (declarations(parsed) == 0 || declarations(parsed) != declarations(fromFile)
+                || declarations(parsed) != declarations(fromStream)) {
+            throw new IllegalStateException("rules/declarations differ: " + counts);
+        }
+        return "rules/decl. " + parsed.getRules().size() + "/" + declarations(parsed);
+    }
+
+    private static int declarations(Stylesheet sheet) {
+        return sheet.getRules().stream().mapToInt(rule -> rule.getDeclarations().size()).sum();
+    }
+
+    private static String graphicSize(Label label) {
+        return label.getGraphic() instanceof ImageView view ? imageSize(view.getImage()) : String.valueOf(label.getGraphic());
     }
 
     private static <T extends Region> T styled(T node, String... styleClasses) {
