@@ -7,12 +7,10 @@ RES=src/main/resources/showcase
 
 "$JAVA_HOME/bin/java" tools/GenImages.java "$RES/images"
 
-TMP=$(mktemp -d)
-say -o "$TMP/hello.aiff" "Hello from Quarkus FX. JavaFX in native mode."
-cp "$TMP/hello.aiff" "$RES/media/hello.aiff"
-afconvert -f WAVE -d LEI16@22050 "$TMP/hello.aiff" "$RES/media/hello.wav"
-afconvert -f m4af -d aac "$TMP/hello.aiff" "$RES/media/hello.m4a"
-rm -rf "$TMP"
+"$JAVA_HOME/bin/java" tools/GenAudio.java "$RES/media/hello.wav"
+afconvert -f AIFC -d BEI16@22050 "$RES/media/hello.wav" "$RES/media/hello.aiff"
+afconvert -f AIFF -d BEI16@22050 "$RES/media/hello.wav" "$RES/media-pages/hello-pcm.aiff"
+afconvert -f m4af -d aac "$RES/media/hello.wav" "$RES/media/hello.m4a"
 
 swift tools/GenVideo.swift "$RES/media/clip.mp4"
 ls -la "$RES/images" "$RES/media"
