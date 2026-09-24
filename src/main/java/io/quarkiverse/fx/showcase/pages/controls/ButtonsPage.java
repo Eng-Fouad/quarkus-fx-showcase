@@ -44,7 +44,6 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
-import javafx.scene.text.Font;
 import javafx.scene.text.TextAlignment;
 
 @Singleton
@@ -77,8 +76,7 @@ public class ButtonsPage implements FeaturePage {
         ControlsUi.ChecksHolder checks = new ControlsUi.ChecksHolder();
         List<Check> early = checks.early;
 
-        Font fa = ControlsUi.fontAwesome();
-        early.add(Checks.run("Font.loadFont(url) Font Awesome", () -> fa.getFamily() + " / " + fa.getName()));
+        early.add(ControlsUi.fontAwesomeCheck("Font.loadFont(url) Font Awesome"));
         Image icon16 = new Image(Fx.resourceUrl("/showcase/images/icon-16.png"));
         Image icon = new Image(Fx.resourceUrl("/showcase/images/icon.png"), 24, 24, true, true);
         early.add(Checks.run("Image icon-16.png / icon.png@24", () -> {
@@ -184,7 +182,7 @@ public class ButtonsPage implements FeaturePage {
         disabledRadio.setDisable(true);
         disabledRadio.setSelected(true);
         medium.setSelected(true);
-        VBox radios = new VBox(5, small, medium, large, disabledRadio);
+        VBox radios = new VBox(3, small, medium, large, disabledRadio);
         early.add(Checks.expect("RadioButton group selection", "Medium",
                 () -> ((RadioButton) sizes.getSelectedToggle()).getText()));
 
@@ -198,7 +196,7 @@ public class ButtonsPage implements FeaturePage {
         CheckBox disabledCheck = new CheckBox("Disabled");
         disabledCheck.setSelected(true);
         disabledCheck.setDisable(true);
-        VBox checkBoxes = new VBox(5, checked, unchecked, indeterminate, disabledCheck);
+        VBox checkBoxes = new VBox(3, checked, unchecked, indeterminate, disabledCheck);
         early.add(Checks.expect("CheckBox tri-state cycle", "indeterminate > checked > unchecked", () -> {
             CheckBox box = new CheckBox();
             box.setAllowIndeterminate(true);
@@ -225,7 +223,9 @@ public class ButtonsPage implements FeaturePage {
         // Labels
         TextField nameField = new TextField("Quarkus");
         nameField.setPrefColumnCount(8);
+        nameField.setId("mnemonic-target");
         Label mnemonic = new Label("_Name:");
+        mnemonic.setId("mnemonic-label");
         mnemonic.setMnemonicParsing(true);
         mnemonic.setLabelFor(nameField);
         HBox mnemonicRow = new HBox(6, mnemonic, nameField);
@@ -251,7 +251,9 @@ public class ButtonsPage implements FeaturePage {
         MenuButton topMenu = new MenuButton("Opens up");
         topMenu.setPopupSide(javafx.geometry.Side.TOP);
         topMenu.getItems().add(new MenuItem("Item"));
-        VBox menuButtons = new VBox(6, menuButton, split, topMenu);
+        HBox topRow = new HBox(6, topMenu, actionResult);
+        topRow.setAlignment(Pos.CENTER_LEFT);
+        VBox menuButtons = new VBox(6, menuButton, split, topRow);
         early.add(Checks.expect("MenuItem.fire / SplitMenuButton.fire", "Rename > Save", () -> {
             rename.fire();
             String first = actionResult.getText();
@@ -269,6 +271,44 @@ public class ButtonsPage implements FeaturePage {
         early.add(Checks.expect("default/cancel pseudo-classes", "true/true",
                 () -> defaultButton.getPseudoClassStates().contains(PseudoClass.getPseudoClass("default")) + "/"
                         + cancelButton.getPseudoClassStates().contains(PseudoClass.getPseudoClass("cancel"))));
+
+        // Resources and classes referenced from controls.css (and from an inline style)
+        Button cssRelative = new Button("relative url");
+        cssRelative.setId("css-graphic-relative");
+        cssRelative.getStyleClass().add("css-graphic-relative");
+        Button cssRoot = new Button("/classpath url");
+        cssRoot.setId("css-graphic-root");
+        cssRoot.getStyleClass().add("css-graphic-root");
+        Button cssInline = new Button("inline style url");
+        cssInline.setId("css-graphic-inline");
+        // no stylesheet URL to resolve against : resolved by the context class loader
+        cssInline.setStyle("-fx-graphic: url('showcase/images/icon-16.png');");
+        Button cssData = new Button("data: url");
+        cssData.setId("css-graphic-data");
+        cssData.getStyleClass().add("css-graphic-data");
+        javafx.scene.image.ImageView cssImage = new javafx.scene.image.ImageView();
+        cssImage.setId("css-image-view");
+        cssImage.getStyleClass().add("css-image-view");
+        javafx.scene.layout.Region cssBackground = new javafx.scene.layout.Region();
+        cssBackground.setId("css-background-image");
+        cssBackground.getStyleClass().add("css-background-image");
+        Button cssShape = new Button("-fx-shape");
+        cssShape.setId("css-shape-button");
+        cssShape.getStyleClass().add("css-shape-button");
+        Label cssFont = new Label("@font-face Roboto Light");
+        cssFont.setId("css-font-face");
+        cssFont.getStyleClass().add("css-font-face");
+        Button cssSkin = new Button("skin");
+        cssSkin.setId("css-skin-button");
+        cssSkin.getStyleClass().add("css-skin-button");
+        HBox cssRow = new HBox(8, cssRelative, cssRoot, cssInline, cssData, cssImage, cssBackground, cssShape,
+                cssFont, cssSkin);
+        early.add(Checks.run("CssParser.parse(controls.css) rules / @font-face", () -> {
+            javafx.css.Stylesheet stylesheet = new javafx.css.CssParser()
+                    .parse(Fx.resource("/showcase/controls/controls.css"));
+            return stylesheet.getRules().size() + " rules / " + stylesheet.getFontFaces().size() + " font face";
+        }));
+        cssRow.setAlignment(Pos.CENTER_LEFT);
 
         // ButtonBar : buttons are added in an arbitrary order, the bar sorts them by ButtonData
         ButtonBar platformBar = buttonBar(null);
@@ -288,14 +328,16 @@ public class ButtonsPage implements FeaturePage {
                 demo("RadioButton group", radios),
                 demo("CheckBox (tri-state)", checkBoxes),
                 demo("Hyperlink", links),
-                demo("MenuButton / SplitMenuButton", menuButtons, actionResult),
+                demo("MenuButton / SplitMenuButton", menuButtons),
                 grow(demo("Label : mnemonic, graphic", labels)));
         VBox bars = demo("ButtonBar : added as Help, Cancel, No, Apply, Next, Yes, Back, OK, Finish, Left, Right, Other"
                 + " - platform order (top) and BUTTON_ORDER_WINDOWS (bottom)", platformBar, windowsBar);
-        checks.setMinHeight(200);
+        VBox css = demo("From controls.css : -fx-graphic url() relative to the stylesheet, from the classpath root, in an"
+                + " inline style and as a data URI, -fx-image, -fx-background-image, -fx-shape, @font-face, -fx-skin"
+                + " (custom Skin class instantiated by reflection)", cssRow);
         checks.setPadding(new Insets(0));
 
-        VBox root = ControlsUi.page(8, row1, row2, row3, bars, checks);
+        VBox root = ControlsUi.page(6, row1, row2, row3, bars, css, checks);
         root.setPrefWidth(1028);
         ControlsUi.rememberFocus(root);
         return root;
@@ -310,15 +352,73 @@ public class ButtonsPage implements FeaturePage {
             // ButtonBarSkin requests the focus on the first button whose ButtonData is a default one
             late.add(Checks.run("ButtonBarSkin focused the default ButtonData button", () -> {
                 Node owner = content.getScene().getFocusOwner();
-                return owner instanceof Button b ? b.getText() : String.valueOf(owner);
+                // never Node.toString() : it contains an identity hash code
+                return owner instanceof Button b ? b.getText() : ControlsUi.describe(owner);
             }));
             ControlsUi.restoreFocus(content);
             late.add(Checks.run("ButtonBar laid out order (by x)", () -> bar.getButtons().stream()
                     .sorted(Comparator.comparingDouble(b -> b.localToScene(0, 0).getX()))
                     .map(b -> ((Button) b).getText())
                     .collect(Collectors.joining(" "))));
-            holder.show("Checks", late);
+            // LabeledSkinBase registers the mnemonic of the label in the scene, targeting its labelFor node
+            late.add(Checks.run("Scene mnemonic of the Label _Name:", () -> {
+                Node target = content.lookup("#mnemonic-target");
+                String names = content.getScene().getMnemonics().entrySet().stream()
+                        .filter(e -> e.getValue().stream().anyMatch(m -> m.getNode() == target))
+                        .map(e -> e.getKey().getName())
+                        .sorted()
+                        .collect(Collectors.joining(", "));
+                // none on macOS, where LabeledSkinBase does not register mnemonics
+                return names.isEmpty() ? "none registered" : names;
+            }));
+            late.add(Checks.expect("CSS -fx-graphic url() (relative / root / inline / data)",
+                    "16x16 / 32x32 / 16x16 / 12x12",
+                    () -> graphicSize(content, "#css-graphic-relative") + " / "
+                            + graphicSize(content, "#css-graphic-root") + " / "
+                            + graphicSize(content, "#css-graphic-inline") + " / "
+                            + graphicSize(content, "#css-graphic-data")));
+            late.add(Checks.expect("CSS -fx-image on an ImageView", "64x64", () -> {
+                Image image = ((javafx.scene.image.ImageView) content.lookup("#css-image-view")).getImage();
+                return size(image);
+            }));
+            late.add(Checks.expect("CSS -fx-background-image", "256x256", () -> {
+                javafx.scene.layout.Region region = (javafx.scene.layout.Region) content
+                        .lookup("#css-background-image");
+                var background = region.getBackground();
+                if (background == null || background.getImages().isEmpty()) {
+                    return "no background image";
+                }
+                return size(background.getImages().getFirst().getImage());
+            }));
+            late.add(Checks.expect("CSS -fx-shape", "SVGPath", () -> {
+                javafx.scene.shape.Shape shape = ((javafx.scene.layout.Region) content.lookup("#css-shape-button"))
+                        .getShape();
+                return shape == null ? "no shape" : shape.getClass().getSimpleName();
+            }));
+            late.add(Checks.expect("CSS @font-face font (family / name)", "Roboto / Roboto Light", () -> {
+                javafx.scene.text.Font font = ((Label) content.lookup("#css-font-face")).getFont();
+                return font.getFamily() + " / " + font.getName();
+            }));
+            late.add(Checks.expect("CSS -fx-skin custom skin", BadgeButtonSkin.class.getSimpleName(),
+                    () -> ((Button) content.lookup("#css-skin-button")).getSkin().getClass().getSimpleName()));
+            holder.show("Checks", late, 2);
         }, Fx.FX_THREAD);
+    }
+
+    private static String graphicSize(Node content, String selector) {
+        Node graphic = ((Button) content.lookup(selector)).getGraphic();
+        return graphic instanceof javafx.scene.image.ImageView view ? size(view.getImage())
+                : ControlsUi.describe(graphic);
+    }
+
+    private static String size(Image image) {
+        if (image == null) {
+            return "no image";
+        }
+        if (image.isError()) {
+            return "error: " + Checks.describe(image.getException());
+        }
+        return (int) image.getWidth() + "x" + (int) image.getHeight();
     }
 
     private static ToggleButton toggle(String text, String styleClass, ToggleGroup group) {
