@@ -18,6 +18,7 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms;
 import io.quarkiverse.fx.showcase.core.ShowcaseMode;
 import javafx.collections.FXCollections;
 import javafx.geometry.Bounds;
@@ -449,15 +450,27 @@ public class PopupsPage implements FeaturePage {
         });
     }
 
+    /**
+     * The MenuBar of the main window asks for the system menu bar. Only macOS has one : there the menus move to the
+     * screen menu bar and no menu button is left in the scene, elsewhere (Windows, Linux) the property is ignored and
+     * the MenuBar shows one button per menu in the scene.
+     */
     private static Check mainMenuBarCheck(Stage main) {
-        return Checks.run("Main window MenuBar", () -> {
+        String name = "Main window MenuBar";
+        try {
             MenuBar bar = main.getScene().getRoot().lookupAll(".menu-bar").stream()
                     .filter(n -> n instanceof MenuBar m && m.isUseSystemMenuBar()).map(MenuBar.class::cast)
                     .findFirst().orElseThrow(() -> new IllegalStateException("no MenuBar with useSystemMenuBar"));
-            return "useSystemMenuBar=" + bar.isUseSystemMenuBar() + ", menus "
-                    + bar.getMenus().stream().map(Menu::getText).toList() + ", "
-                    + bar.lookupAll(".menu").size() + " menu buttons left in the scene";
-        });
+            int buttons = bar.lookupAll(".menu").size();
+            int expected = Platforms.isMac() ? 0 : bar.getMenus().size();
+            String value = "useSystemMenuBar=" + bar.isUseSystemMenuBar() + ", menus "
+                    + bar.getMenus().stream().map(Menu::getText).toList() + ", " + buttons
+                    + " menu buttons left in the scene" + (Platforms.isMac() ? "" : " (no system menu bar)");
+            return Check.of(name, buttons == expected,
+                    buttons == expected ? value : value + ", expected " + expected);
+        } catch (Throwable t) {
+            return Check.fail(name, Checks.describe(t));
+        }
     }
 
     /**
