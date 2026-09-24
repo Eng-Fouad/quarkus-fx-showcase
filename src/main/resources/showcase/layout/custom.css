@@ -131,3 +131,9 @@
     -fx-opacity: 0.9;
     -fx-translate-x: 30;
 }
+
+/* ---- -fx-skin : skin class instantiated by name (Class.forName + public (Badge) constructor) ---- */
+.badge.ring-skin {
+    -fx-skin: "io.quarkiverse.fx.showcase.pages.layout.BadgeRingSkin";
+    -badge-color: #00897b;
+}

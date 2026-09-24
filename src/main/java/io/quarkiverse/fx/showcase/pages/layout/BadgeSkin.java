@@ -1,6 +1,9 @@
 package io.quarkiverse.fx.showcase.pages.layout;
 
+import java.util.List;
+
 import javafx.beans.value.ObservableValue;
+import javafx.scene.Node;
 import javafx.scene.control.SkinBase;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
@@ -17,6 +20,7 @@ import javafx.scene.text.Text;
 class BadgeSkin extends SkinBase<Badge> {
 
     private Shape shape;
+    private List<Node> decorations = List.of();
     private final Text text = new Text();
 
     BadgeSkin(Badge badge) {
@@ -57,8 +61,24 @@ class BadgeSkin extends SkinBase<Badge> {
         text.setText(badge.getText());
         text.setFill(badge.getTextFill());
         text.setFont(Font.font("System", FontWeight.BOLD, Math.max(9, Math.round(size * 0.3))));
-        getChildren().setAll(shape, text);
+        decorations = decorations(badge, size);
+        getChildren().setAll(decorations);
+        getChildren().addAll(shape, text);
         badge.requestLayout();
+    }
+
+    /**
+     * Extra nodes drawn behind the badge by sub-classes, centered on (0, 0).
+     */
+    protected List<Node> decorations(Badge badge, double size) {
+        return List.of();
+    }
+
+    /**
+     * Room taken by the decorations around the badge, on each side.
+     */
+    protected double decorationPadding() {
+        return 0;
     }
 
     private static Polygon star(double outer, double inner) {
@@ -74,7 +94,8 @@ class BadgeSkin extends SkinBase<Badge> {
 
     private double extent() {
         Badge badge = getSkinnable();
-        return badge.getSize() + badge.getRingWidth() + (badge.isOutlined() ? Math.max(2, badge.getRingWidth()) : 0);
+        return badge.getSize() + badge.getRingWidth() + (badge.isOutlined() ? Math.max(2, badge.getRingWidth()) : 0)
+                + 2 * decorationPadding();
     }
 
     @Override
@@ -114,6 +135,10 @@ class BadgeSkin extends SkinBase<Badge> {
         double offsetY = y + (h - size) / 2;
         shape.setLayoutX(offsetX);
         shape.setLayoutY(offsetY);
+        for (Node decoration : decorations) {
+            decoration.setLayoutX(x + w / 2);
+            decoration.setLayoutY(y + h / 2);
+        }
         double textWidth = text.getLayoutBounds().getWidth();
         double textHeight = text.getLayoutBounds().getHeight();
         text.setLayoutX(x + (w - textWidth) / 2 - text.getLayoutBounds().getMinX());
