@@ -13,8 +13,6 @@ import io.quarkiverse.fx.showcase.core.Categories;
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
-import javafx.application.ConditionalFeature;
-import javafx.application.Platform;
 import javafx.geometry.Point3D;
 import javafx.scene.AmbientLight;
 import javafx.scene.Camera;
@@ -153,7 +151,7 @@ public class ThreeDLightsPage implements FeaturePage {
 
         // Checks
         List<Check> defaults = new ArrayList<>();
-        defaults.add(Checks.expect("ConditionalFeature.SCENE3D", true, () -> Platform.isSupported(ConditionalFeature.SCENE3D)));
+        defaults.add(ThreeD.scene3d());
         // a pipeline that fails to load (native library, shaders) silently falls back to the software one, without 3D
         defaults.add(Checks.run("Prism pipeline / 3D supported", () -> {
             com.sun.prism.GraphicsPipeline pipeline = com.sun.prism.GraphicsPipeline.getPipeline();

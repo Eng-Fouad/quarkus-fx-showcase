@@ -13,8 +13,6 @@ import io.quarkiverse.fx.showcase.core.Categories;
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
-import javafx.application.ConditionalFeature;
-import javafx.application.Platform;
 import javafx.geometry.Point3D;
 import javafx.scene.AmbientLight;
 import javafx.scene.Group;
@@ -146,7 +144,7 @@ public class ThreeDShapesPage implements FeaturePage {
 
         // Checks
         List<Check> checks = new ArrayList<>();
-        checks.add(Checks.expect("ConditionalFeature.SCENE3D", true, () -> Platform.isSupported(ConditionalFeature.SCENE3D)));
+        checks.add(ThreeD.scene3d());
         checks.add(Checks.expect("sub scene depth buffer / AA", "true / BALANCED",
                 () -> main.isDepthBuffer() + " / " + main.getAntiAliasing()));
         checks.add(Checks.expect("camera fov / near / far", "35.0 / 1.0 / 5000.0",
