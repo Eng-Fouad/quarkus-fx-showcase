@@ -202,7 +202,9 @@ public class VideoPage implements FeaturePage {
                     }
                     state.readyReached = true;
                     player.pause();
-                    return MediaSupport.until(() -> player.getStatus() == MediaPlayer.Status.PAUSED, 10_000, "PAUSED");
+                    // PAUSED on macOS, READY with the GStreamer engine (no documented READY -> PAUSED transition)
+                    MediaPlayer.Status paused = MediaSupport.mp4StatusAfterPauseWhenReady();
+                    return MediaSupport.until(() -> player.getStatus() == paused, 10_000, paused.name());
                 });
         // frames at whole seconds, captured with MediaView.snapshot()
         for (int i = 0; i < STRIP.length; i++) {
@@ -393,7 +395,8 @@ public class VideoPage implements FeaturePage {
         // without the codec, the state of the player is not checked
         if (player != null && !unavailable) {
             Media media = state.media;
-            video.add(Checks.expect("status, onReady handler calls", "PAUSED, 1",
+            video.add(Checks.expect("status, onReady handler calls",
+                    MediaSupport.mp4StatusAfterPauseWhenReady() + ", 1",
                     () -> player.getStatus().name() + ", " + state.readyEvents));
             video.add(Checks.expect("media width x height", "320x180", () -> media.getWidth() + "x" + media.getHeight()));
             video.add(Checks.expect("duration", "3.0 s", () -> MediaSupport.seconds(media.getDuration())));
