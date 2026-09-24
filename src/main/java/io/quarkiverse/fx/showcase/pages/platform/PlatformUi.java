@@ -2,6 +2,7 @@ package io.quarkiverse.fx.showcase.pages.platform;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
@@ -12,6 +13,7 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.Fx;
 import io.quarkiverse.fx.showcase.core.MainView;
+import io.quarkiverse.fx.showcase.core.Platforms;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.layout.GridPane;
@@ -54,9 +56,46 @@ final class PlatformUi {
     static Label line(String text) {
         Label label = new Label(text);
         label.getStyleClass().add("event-line");
+        label.setStyle(monoFamilyStyle());
         label.setWrapText(true);
         label.setMinHeight(Region.USE_PREF_SIZE);
         return label;
+    }
+
+    /** Lazily computed (not in a static initializer : font APIs must not run at native image build time). */
+    private static String monoStyle;
+
+    /**
+     * The monospaced family of the operating system ("Menlo" on macOS) as an inline style : -fx-font-family takes a
+     * single family, so it is not in pages.css.
+     */
+    private static String monoFamilyStyle() {
+        if (monoStyle == null) {
+            monoStyle = "-fx-font-family: \"" + Platforms.Families.mono() + "\";";
+        }
+        return monoStyle;
+    }
+
+    /**
+     * {@link Checks#expect} whose expected value was verified on macOS, where a mismatch fails. On Windows and Linux the
+     * outcome depends on the native clipboard / window system implementation and on the machine (clipboard managers,
+     * remote desktop, monitor layout) : a mismatch or an exception is reported as informational, not as a failure (a
+     * difference between JVM and native runs still shows in the comparison).
+     */
+    static Check expectOnMac(String name, Object expected, Callable<?> action) {
+        return strictOnMac(Checks.expect(name, expected, action));
+    }
+
+    /**
+     * {@link Checks#run} : an exception fails on macOS, it is informational on Windows and Linux (see
+     * {@link #expectOnMac}).
+     */
+    static Check runOnMac(String name, Callable<?> action) {
+        return strictOnMac(Checks.run(name, action));
+    }
+
+    private static Check strictOnMac(Check check) {
+        return Platforms.isMac() || !Boolean.FALSE.equals(check.ok()) ? check : Check.info(check.name(), check.value());
     }
 
     /**
