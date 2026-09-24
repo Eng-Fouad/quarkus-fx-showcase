@@ -2,7 +2,12 @@ package io.quarkiverse.fx.showcase.pages.threed;
 
 import java.util.Locale;
 
+import io.quarkiverse.fx.showcase.core.Check;
+import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms;
+import javafx.application.ConditionalFeature;
+import javafx.application.Platform;
 import javafx.geometry.Bounds;
 import javafx.scene.Camera;
 import javafx.scene.Group;
@@ -374,6 +379,28 @@ final class ThreeD {
             }
         }
         return image;
+    }
+
+    /**
+     * {@code ConditionalFeature.SCENE3D} : always available on macOS (ES2 pipeline), where its absence is a
+     * malfunction (a pipeline that failed to load falls back to the software one). On Windows and Linux it needs a
+     * hardware accelerated pipeline (D3D / ES2) : a machine without one (virtual machine, remote desktop, missing
+     * OpenGL driver) uses the software pipeline, which renders no 3D. That is reported, not failed : JVM and native
+     * runs on the same machine still compare the value.
+     */
+    static Check scene3d() {
+        String name = "ConditionalFeature.SCENE3D";
+        if (Platforms.isMac()) {
+            return Checks.expect(name, true, () -> Platform.isSupported(ConditionalFeature.SCENE3D));
+        }
+        try {
+            if (Platform.isSupported(ConditionalFeature.SCENE3D)) {
+                return Check.pass(name, true);
+            }
+            return Check.info(name, "false (no hardware accelerated pipeline on this machine: 3D is not rendered)");
+        } catch (Throwable t) {
+            return Check.fail(name, Checks.describe(t));
+        }
     }
 
     static String bounds(Bounds b) {
