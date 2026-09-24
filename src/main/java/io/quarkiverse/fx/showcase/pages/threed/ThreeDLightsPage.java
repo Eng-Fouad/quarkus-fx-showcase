@@ -111,16 +111,19 @@ public class ThreeDLightsPage implements FeaturePage {
         directional.setDirection(new Point3D(1, 1, 0.6));
         add(grid, 4, allLights, "DirectionalLight · direction (1, 1, 0.6)", o -> List.of(directional));
 
-        // 6. colored lights, one of them switched off
+        // 6. colored lights, one of them switched off : 3 active lights (the maximum of the ES2 / D3D shaders)
         PointLight red = new PointLight(Color.web("#ff3030"));
         red.getTransforms().add(new Translate(-220, -120, -120));
         PointLight blue = new PointLight(Color.web("#3060ff"));
         blue.getTransforms().add(new Translate(220, -120, -120));
+        PointLight green = new PointLight(Color.web("#30c040"));
+        green.getTransforms().add(new Translate(0, -240, 260));
         PointLight off = new PointLight(Color.WHITE);
         off.getTransforms().add(new Translate(0, -200, -200));
         off.setLightOn(false);
         AmbientLight dim = new AmbientLight(Color.gray(0.15));
-        add(grid, 5, allLights, "red + blue PointLights, white one lightOn=false", o -> List.of(red, blue, off, dim));
+        add(grid, 5, allLights, "red, blue, green (back) PointLights, white one lightOn=false",
+                o -> List.of(red, blue, green, off, dim));
 
         // 7. scopes
         PointLight scoped = new PointLight(Color.WHITE);
@@ -151,6 +154,11 @@ public class ThreeDLightsPage implements FeaturePage {
         // Checks
         List<Check> defaults = new ArrayList<>();
         defaults.add(Checks.expect("ConditionalFeature.SCENE3D", true, () -> Platform.isSupported(ConditionalFeature.SCENE3D)));
+        // a pipeline that fails to load (native library, shaders) silently falls back to the software one, without 3D
+        defaults.add(Checks.run("Prism pipeline / 3D supported", () -> {
+            com.sun.prism.GraphicsPipeline pipeline = com.sun.prism.GraphicsPipeline.getPipeline();
+            return pipeline.getClass().getSimpleName() + " / " + pipeline.is3DSupported();
+        }));
         defaults.add(Checks.expect("AmbientLight default color / on", "0xffffffff / true", () -> {
             AmbientLight light = new AmbientLight();
             return light.getColor() + " / " + light.isLightOn();
@@ -183,7 +191,7 @@ public class ThreeDLightsPage implements FeaturePage {
         configured.add(Checks.expect("scope / exclusion scope sizes", "1 / 0 · 0 / 1",
                 () -> scoped.getScope().size() + " / " + scoped.getExclusionScope().size() + " · "
                         + excluding.getScope().size() + " / " + excluding.getExclusionScope().size()));
-        configured.add(Checks.expect("lights on / total", "13 / 14",
+        configured.add(Checks.expect("lights on / total", "14 / 15",
                 () -> allLights.stream().filter(LightBase::isLightOn).count() + " / " + allLights.size()));
         configured.add(Checks.expect("ParallelCamera near / far clip", "0.1 / 100.0",
                 () -> parallelCamera.getNearClip() + " / " + parallelCamera.getFarClip()));
