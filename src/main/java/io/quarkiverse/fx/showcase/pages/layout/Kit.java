@@ -6,11 +6,13 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.Fx;
+import javafx.animation.AnimationTimer;
 import javafx.css.CssParser;
 import javafx.geometry.Bounds;
 import javafx.geometry.Pos;
@@ -188,6 +190,25 @@ final class Kit {
         });
     }
 
+    /**
+     * Completes on the first pulse where {@code condition} holds, or after {@code maxPulses} pulses.
+     */
+    static CompletionStage<Void> until(BooleanSupplier condition, int maxPulses) {
+        CompletableFuture<Void> done = new CompletableFuture<>();
+        new AnimationTimer() {
+            private int count;
+
+            @Override
+            public void handle(long now) {
+                if (condition.getAsBoolean() || ++count >= maxPulses) {
+                    stop();
+                    done.complete(null);
+                }
+            }
+        }.start();
+        return done;
+    }
+
     static CompletionStage<?> ready(Node content) {
         Object ready = content.getProperties().get(READY);
         return ready instanceof CompletionStage<?> stage ? stage : CompletableFuture.completedFuture(null);
@@ -237,7 +258,8 @@ final class Kit {
         List<String> errors = new ArrayList<>();
         List<CssParser.ParseError> all = CssParser.errorsProperty();
         for (int i = Math.min(mark, all.size()); i < all.size(); i++) {
-            errors.add(all.get(i).getMessage());
+            // messages may embed Object.toString() of a node : identity hash codes differ between runs
+            errors.add(all.get(i).getMessage().replaceAll("@[0-9a-f]{4,}", "@…"));
         }
         return errors;
     }

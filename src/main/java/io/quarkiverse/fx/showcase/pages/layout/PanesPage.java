@@ -11,6 +11,7 @@ import jakarta.inject.Singleton;
 import io.quarkiverse.fx.showcase.core.Categories;
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
+import javafx.geometry.Bounds;
 import javafx.geometry.HPos;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
@@ -345,10 +346,15 @@ public class PanesPage implements FeaturePage {
         return root;
     }
 
+    /**
+     * Number of rows (or columns) : the children of a row are vertically centered (rowValignment CENTER), those of a
+     * column horizontally centered (columnHalignment CENTER), so they share the same center.
+     */
     private static int distinct(List<Node> nodes, boolean byY) {
         TreeSet<Double> values = new TreeSet<>();
         for (Node node : nodes) {
-            values.add(byY ? node.getLayoutY() : node.getLayoutX());
+            Bounds bounds = node.getBoundsInParent();
+            values.add(byY ? bounds.getCenterY() : bounds.getCenterX());
         }
         return values.size();
     }
