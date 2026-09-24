@@ -18,6 +18,7 @@ import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
 import io.quarkiverse.fx.showcase.core.ShowcaseMode;
 import javafx.css.PseudoClass;
+import javafx.event.ActionEvent;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Group;
@@ -83,8 +84,7 @@ public class DialogsPage implements FeaturePage {
 
     @Override
     public Node build() {
-        VBox root = WindowSupport.styled(new VBox(12));
-        root.getStyleClass().add("windows-page");
+        VBox root = WindowSupport.page(8);
 
         GridPane panes = new GridPane();
         panes.setHgap(13);
@@ -110,7 +110,8 @@ public class DialogsPage implements FeaturePage {
                 alertPane(AlertType.CONFIRMATION, null, "Delete the 3 selected items?")), 0, 1);
 
         DialogPane none = alertPane(AlertType.NONE, "No type, custom graphic", "Image graphic and custom buttons.");
-        ImageView graphic = new ImageView(new Image(Fx.resourceUrl("/showcase/images/icon.png")));
+        Image icon = new Image(Fx.resourceUrl("/showcase/images/icon.png"));
+        ImageView graphic = new ImageView(icon);
         graphic.setFitWidth(40);
         graphic.setFitHeight(40);
         none.setGraphic(graphic);
@@ -126,8 +127,9 @@ public class DialogsPage implements FeaturePage {
         checks.add(Checks.expect("ButtonType texts (bundle)", "OK Cancel Yes No Apply Close",
                 () -> List.of(ButtonType.OK, ButtonType.CANCEL, ButtonType.YES, ButtonType.NO, ButtonType.APPLY,
                         ButtonType.CLOSE).stream().map(ButtonType::getText).collect(Collectors.joining(" "))));
-        checks.add(Checks.run("Alert titles / headers", () -> alertDefaults(alert -> quote(alert.getTitle()) + "/"
-                + quote(alert.getHeaderText()))));
+        checks.add(Checks.run("Alert titles / headers", () -> alertDefaults(alert -> java.util.Objects
+                .equals(alert.getTitle(), alert.getHeaderText()) ? quote(alert.getTitle())
+                        : quote(alert.getTitle()) + "/" + quote(alert.getHeaderText()))));
         checks.add(Checks.run("Alert buttons / style class", () -> alertDefaults(alert -> alert.getButtonTypes().stream()
                 .map(ButtonType::getText).toList() + " " + alert.getDialogPane().getStyleClass().stream()
                         .filter(c -> !c.equals("root") && !c.equals("dialog-pane") && !c.equals("alert"))
@@ -138,6 +140,21 @@ public class DialogsPage implements FeaturePage {
             return describe(alert.getResult());
         }));
         checks.add(Checks.run("modena.css -fx-graphic", DialogsPage::cssGraphics));
+        checks.add(Checks.expect("NONE pane graphic (icon.png)", "64x64", () -> icon.isError()
+                ? "ERROR " + Checks.describe(icon.getException())
+                : WindowSupport.size(icon.getWidth(), icon.getHeight())));
+        checks.add(Checks.run("ButtonBar platform defaults", () -> {
+            ButtonBar bar = new ButtonBar();
+            return "order " + bar.getButtonOrder() + ", min width " + WindowSupport.fmt(bar.getButtonMinWidth());
+        }));
+        checks.add(Checks.expect("Dialog<String> result converter", "Apply (APPLY) → converted Apply", () -> {
+            // the buttons of a dialog that was never shown still convert and set its result
+            Dialog<String> dialog = new Dialog<>();
+            dialog.getDialogPane().getButtonTypes().setAll(ButtonType.APPLY, ButtonType.CANCEL);
+            dialog.setResultConverter(type -> "converted " + type.getText());
+            ((Button) dialog.getDialogPane().lookupButton(ButtonType.APPLY)).fire();
+            return describe(ButtonType.APPLY) + " → " + dialog.getResult();
+        }));
         checks.add(Checks.run("ExtensionFilters", () -> fileChooser.getExtensionFilters().stream()
                 .map(f -> f.getDescription() + " " + f.getExtensions().size()).collect(Collectors.joining(", "))
                 + ", selected " + fileChooser.getSelectedExtensionFilter().getDescription()));
@@ -252,7 +269,12 @@ public class DialogsPage implements FeaturePage {
                 throw new IllegalStateException(styleClass + ": no image graphic but " + graphic);
             }
         }
-        return String.join(", ", result);
+        // compact form when all images have the same size
+        List<String> sizes = result.stream().map(r -> r.substring(r.indexOf(' ') + 1)).distinct().toList();
+        return sizes.size() == 1 && !sizes.get(0).contains("ERROR")
+                ? result.stream().map(r -> r.substring(0, r.indexOf(' '))).collect(Collectors.joining(", ")) + ": "
+                        + sizes.get(0)
+                : String.join(", ", result);
     }
 
     // --------------------------------------------------------------------------------------------- choosers & buttons
@@ -425,6 +447,13 @@ public class DialogsPage implements FeaturePage {
         chain = live.step(chain, "ChoiceDialog window", v -> choiceScenario(live, main, x, y));
         chain = live.step(chain, "Custom dialog window", v -> customScenario(live, main, x, y));
         return chain.thenRun(() -> {
+            // setX / setY before show() : the dialogs are not centered on their owner
+            List<String> positions = live.images.keySet().stream()
+                    .map(key -> key + " " + live.notes.getOrDefault(key, "?")).toList();
+            String requested = "+" + WindowSupport.fmt(x - main.getX()) + ",+" + WindowSupport.fmt(y - main.getY());
+            boolean all = positions.size() == 4 && positions.stream().allMatch(p -> p.endsWith(" " + requested));
+            live.checks.add(Check.of("Dialog positions (from owner)", all,
+                    all ? "all 4 at " + requested : String.join(", ", positions)));
             live.closeAll();
             if (mainFocused && !main.isFocused()) {
                 main.requestFocus();
@@ -444,13 +473,21 @@ public class DialogsPage implements FeaturePage {
         dialog.setY(y);
         dialog.show();
         Scene scene = dialog.getDialogPane().getScene();
+        WindowSupport.shield(scene.getWindow());
         live.opened.add(scene.getWindow());
         afterShow.run();
         return Fx.pulses(3).thenCompose(v -> {
             WindowSupport.stabilize(scene);
             afterShow.run();
             return Fx.pulses(2);
-        }).thenAccept(v -> live.images.put(key, WindowSupport.capture(scene)));
+        }).thenAccept(v -> {
+            live.images.put(key, WindowSupport.capture(scene));
+            Window window = scene.getWindow();
+            Window owner = dialog.getOwner();
+            live.notes.put(key, owner == null ? "no owner"
+                    : "+" + WindowSupport.fmt(window.getX() - owner.getX()) + ",+"
+                            + WindowSupport.fmt(window.getY() - owner.getY()));
+        });
     }
 
     private static String windowInfo(Dialog<?> dialog, Stage main) {
@@ -521,12 +558,23 @@ public class DialogsPage implements FeaturePage {
             boolean refused = dialog.isShowing();
             live.checks.add(Check.of("Custom dialog close()", shown && refused,
                     info + ", no cancel button → close " + (refused ? "refused" : "accepted")));
+            // validation pattern : an ACTION event filter consuming the event keeps the dialog open
+            Button test = (Button) dialog.getDialogPane().lookupButton(TEST);
+            List<String> vetoed = new ArrayList<>();
+            test.addEventFilter(ActionEvent.ACTION, e -> {
+                vetoed.add(((Button) e.getSource()).getText());
+                e.consume();
+            });
+            test.fire();
+            live.checks.add(Check.of("Custom dialog, Test vetoed", dialog.isShowing() && dialog.getResult() == null
+                    && vetoed.equals(List.of("Test")),
+                    (dialog.isShowing() ? "vetoed" : "closed") + " by " + vetoed + ", result " + dialog.getResult()));
             Button connect = (Button) dialog.getDialogPane().lookupButton(CONNECT);
             boolean isDefault = connect.isDefaultButton();
             connect.fire();
             live.checks.add(Check.of("Custom dialog, Connect fired",
                     isDefault && !dialog.isShowing() && dialog.getResult() == CONNECT,
-                    (isDefault ? "default button" : "not default") + " → " + describe(dialog.getResult())));
+                    (isDefault ? "default" : "not default") + " → " + describe(dialog.getResult())));
         });
     }
 }
