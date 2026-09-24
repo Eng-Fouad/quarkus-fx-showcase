@@ -570,21 +570,29 @@ public class StagesPage implements FeaturePage {
                 && closed, String.join(", ", steps));
     }
 
+    /**
+     * The stage must be showing with its style, at the requested offset from the main window and with the size of its
+     * scene content. Position and size are compared give or take one device pixel (fractional scales of Windows) and
+     * are only informational on Linux, where the window manager may place windows itself (see
+     * {@link WindowSupport#placement(boolean)}).
+     */
     private static Check stageCheck(Spec spec, Stage stage, Stage main, double[] offset) {
         Scene scene = stage.getScene();
-        boolean sizeOk = scene.getWidth() == CONTENT_WIDTH && scene.getHeight() == CONTENT_HEIGHT;
+        boolean sizeOk = WindowSupport.near(scene.getWidth(), CONTENT_WIDTH, stage)
+                && WindowSupport.near(scene.getHeight(), CONTENT_HEIGHT, stage);
         double dx = stage.getX() - main.getX();
         double dy = stage.getY() - main.getY();
-        boolean positionOk = dx == offset[0] && dy == offset[1];
+        boolean positionOk = WindowSupport.near(dx, offset[0], stage) && WindowSupport.near(dy, offset[1], stage);
         StringBuilder value = new StringBuilder();
         value.append(stage.isShowing() ? "showing" : "NOT showing").append(", ").append(stage.getStyle())
                 .append(", at +").append(WindowSupport.fmt(dx)).append(",+").append(WindowSupport.fmt(dy))
                 .append(positionOk ? "" : " (requested +" + WindowSupport.fmt(offset[0]) + ",+"
                         + WindowSupport.fmt(offset[1]) + ")")
                 .append(", scene ").append(WindowSupport.size(scene.getWidth(), scene.getHeight()))
+                .append(sizeOk ? "" : " (requested " + WindowSupport.size(CONTENT_WIDTH, CONTENT_HEIGHT) + ")")
                 .append(", frame +").append(WindowSupport.fmt(stage.getWidth() - scene.getWidth())).append("x+")
                 .append(WindowSupport.fmt(stage.getHeight() - scene.getHeight()));
-        boolean ok = stage.isShowing() && stage.getStyle() == spec.style() && sizeOk && positionOk;
+        boolean ok = stage.isShowing() && stage.getStyle() == spec.style();
         switch (spec.key()) {
             case "decorated" -> {
                 value.append(", icons ").append(stage.getIcons().stream()
@@ -592,7 +600,13 @@ public class StagesPage implements FeaturePage {
                         .toList());
                 ok &= stage.getIcons().size() == 2 && stage.getIcons().stream().noneMatch(Image::isError);
             }
-            case "transparent" -> value.append(", fill ").append(scene.getFill());
+            case "transparent" -> {
+                value.append(", fill ").append(scene.getFill());
+                if (!Platform.isSupported(ConditionalFeature.TRANSPARENT_WINDOW)) {
+                    // Linux without a compositing window manager : the window is shown opaque (not a failure)
+                    value.append(" (TRANSPARENT_WINDOW not supported: opaque window)");
+                }
+            }
             case "utility" -> {
                 value.append(", opacity ").append(stage.getOpacity()).append(", alwaysOnTop ")
                         .append(stage.isAlwaysOnTop()).append(", resizable ").append(stage.isResizable());
@@ -607,6 +621,7 @@ public class StagesPage implements FeaturePage {
             default -> {
             }
         }
-        return Check.of(spec.caption(), ok, value);
+        return new Check(spec.caption(), value.toString(),
+                ok ? WindowSupport.placement(sizeOk && positionOk) : Boolean.FALSE);
     }
 }
