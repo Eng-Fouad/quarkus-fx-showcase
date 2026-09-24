@@ -10,21 +10,25 @@ in the native image configuration of quarkus-fx.
 
 ## Requirements
 
-- macOS (the native configuration is currently tuned for macOS)
-- GraalVM for JDK 25 (`JAVA_HOME` and `GRAALVM_HOME`), Maven 3.9
+- macOS, Windows or Linux
+- GraalVM for JDK 25, with `JAVA_HOME` and `GRAALVM_HOME` pointing to it (the tools are JDK 25 single-file programs)
 - quarkus-fx `999-SNAPSHOT` installed in the local Maven repository (`mvn install` in a quarkus-fx checkout)
+- Native builds: see the [Quarkus native prerequisites](https://quarkus.io/guides/building-native-image) (Xcode command
+  line tools on macOS, Visual Studio Build Tools on Windows, gcc/zlib/freetype development packages on Linux)
+
+Maven is provided by the wrapper (`./mvnw` on macOS and Linux, `mvnw.cmd` on Windows).
 
 ## Run
 
 ```bash
-mvn package
+./mvnw package
 java -jar target/quarkus-app/quarkus-run.jar
 ```
 
-Native executable:
+Native executable (`...-runner.exe` on Windows):
 
 ```bash
-mvn package -Dnative
+./mvnw package -Dnative
 ./target/quarkus-fx-showcase-1.0.0-SNAPSHOT-runner
 ```
 
@@ -36,12 +40,16 @@ In snapshot mode (`-Dshowcase.snapshot.dir=...`), the application renders every 
 together with a `report.json` of non-visual checks and errors, then exits.
 
 ```bash
-scripts/snapshot.sh jvm            # comparison/jvm
-scripts/snapshot.sh native         # comparison/native
+java tools/Snapshot.java jvm                  # comparison/jvm
+java tools/Snapshot.java native               # comparison/native
 java tools/Compare.java comparison/jvm comparison/native comparison/diff   # summary.txt and index.html
 ```
 
-`scripts/cycle.sh <label> [--trace]` runs a whole iteration: JVM build and snapshots, native build and snapshots, comparison.
+`java tools/Cycle.java <label> [--trace] [--offline]` runs a whole iteration: JVM build and snapshots, native build and
+snapshots, comparison. Options after `--` are passed to both runs, e.g. `java tools/Cycle.java sw -- -Dprism.order=sw`.
+
+Pages use `core/Platforms` to pick operating system specific fonts and expectations: snapshots are only compared between
+runs on the same machine, so a page may look different on another operating system, but its checks must pass everywhere.
 
 Pages must be deterministic (no running animation, clock, randomness, caret or hover) so that two runs render the same
 pixels. Differences of at most 2 levels per channel on less than 0.5% of the pixels are reported as floating point
@@ -49,13 +57,25 @@ noise: the same differences appear between two JVM runs using different executio
 
 ## Native image configuration tools
 
-- `scripts/trace.sh <label> [jvm options]`: runs the snapshots under the GraalVM tracing agent, then
-  `tools/MetadataDiff.java` lists the JNI, reflection and resource accesses of JavaFX that quarkus-fx does not register.
+- `java tools/Cycle.java <label> --trace`: also runs the JVM snapshots under the GraalVM tracing agent, then
+  `tools/MetadataDiff.java` lists the JNI, reflection and resource accesses of JavaFX that quarkus-fx does not register
+  for the current platform.
 - `tools/ClinitAudit.java` (with ASM on the class path): lists the JavaFX classes quarkus-fx leaves initialized at build
-  time whose static initializer reaches native code, threads, native memory, system properties or resource bundles.
+  time whose static initializer reaches native code, threads, native memory, system properties or resource bundles:
+  `java -cp ~/.m2/repository/org/ow2/asm/asm/9.9/asm-9.9.jar tools/ClinitAudit.java`
+
+## Linux in Docker
+
+`docker/linux/Dockerfile` provides a Linux environment (GraalVM, virtual X server, GTK, Mesa, ffmpeg, fonts):
+
+```bash
+docker build -t quarkus-fx-showcase-linux docker/linux
+docker run --rm -v "$PWD":/showcase -v "$HOME/.m2":/root/.m2 quarkus-fx-showcase-linux \
+    xvfb-run -a -s "-screen 0 1920x1200x24" java tools/Cycle.java linux
+```
 
 ## Pages
 
 Each page is a CDI bean implementing `io.quarkiverse.fx.showcase.core.FeaturePage` (see
 `src/main/java/io/quarkiverse/fx/showcase/pages`). The binary test assets are regenerated with
-`scripts/generate-assets.sh`. Third party fonts are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+`scripts/generate-assets.sh` (macOS only: it uses `afconvert` and AVFoundation). Third party fonts are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

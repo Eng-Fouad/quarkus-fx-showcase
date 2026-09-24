@@ -51,6 +51,7 @@ public class ClinitAudit {
     static final String RUNTIME_INIT = "INITIALIZES_RUNTIME_CLASS";
     static final String BUNDLE = "RESOURCE_BUNDLE";
     static final String PROPERTY = "PROPERTY_OR_ENV";
+    static final String HELPER = "FORCES_INIT_OF_RUNTIME_CLASS";
 
     record Call(String target, boolean classInit) {
     }
@@ -61,6 +62,9 @@ public class ClinitAudit {
     static final Map<String, String> superClasses = new HashMap<>();
     static final Set<String> fxClasses = new TreeSet<>();
     static final Set<String> classesWithClinit = new HashSet<>();
+    // helper class -> classes whose initialization its static initializer forces (Utils.forceInit(X.class)),
+    // typically to have X register an accessor into the helper
+    static final Map<String, Set<String>> forcedInits = new HashMap<>();
 
     public static void main(String[] args) throws Exception {
         String platform = args.length > 0 ? args[0] : currentPlatform();
@@ -128,6 +132,15 @@ public class ClinitAudit {
             }
         }
         propagate(runtimeInitialized);
+        // A helper forcing the initialization of a run time initialized class at build time gets its accessor set in
+        // the image builder : the run time initialization of the class then fails ("accessor already set")
+        forcedInits.forEach((helper, forced) -> {
+            for (String c : forced) {
+                if (runtimeInitialized.contains(c) && !runtimeInitialized.contains(helper)) {
+                    hazards.computeIfAbsent(helper + "." + CLINIT, k -> new LinkedHashMap<>()).put(HELPER, c.replace('/', '.'));
+                }
+            }
+        });
 
         // Report
         Map<String, Map<String, List<String>>> byPackage = new TreeMap<>();
@@ -146,7 +159,7 @@ public class ClinitAudit {
             count++;
             String pkg = c.substring(0, c.lastIndexOf('/')).replace('/', '.');
             List<String> lines = new ArrayList<>();
-            for (String category : List.of(NATIVE, LIBRARY, THREAD, MEMORY, AWT, RUNTIME_INIT, BUNDLE, PROPERTY)) {
+            for (String category : List.of(HELPER, NATIVE, LIBRARY, THREAD, MEMORY, AWT, RUNTIME_INIT, BUNDLE, PROPERTY)) {
                 if (h.containsKey(category)) {
                     lines.add(category + " via " + path(c + "." + CLINIT, category));
                 }
@@ -207,8 +220,20 @@ public class ClinitAudit {
                     classesWithClinit.add(owner);
                 }
                 return new MethodVisitor(Opcodes.ASM9) {
+                    String lastClassConstant;
+
+                    @Override
+                    public void visitLdcInsn(Object value) {
+                        lastClassConstant = value instanceof org.objectweb.asm.Type t && t.getSort() == org.objectweb.asm.Type.OBJECT
+                                ? t.getInternalName() : null;
+                    }
+
                     @Override
                     public void visitMethodInsn(int opcode, String o, String n, String d, boolean itf) {
+                        if (name.equals("<clinit>") && o.equals("com/sun/javafx/util/Utils") && n.equals("forceInit")
+                                && lastClassConstant != null) {
+                            forcedInits.computeIfAbsent(owner, k -> new TreeSet<>()).add(lastClassConstant);
+                        }
                         String target = o + "." + n + d;
                         call(method, target, false);
                         if (opcode == Opcodes.INVOKESTATIC || n.equals("<init>")) {
