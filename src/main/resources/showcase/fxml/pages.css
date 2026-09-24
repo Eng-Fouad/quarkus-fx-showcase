@@ -149,3 +149,9 @@
     -fx-border-color: #b0bec5;
     -fx-border-radius: 4;
 }
+
+.probe-value {
+    -fx-font-family: "Menlo", "Monospaced";
+    -fx-font-size: 9.5px;
+    -fx-text-fill: #2e4a3a;
+}
