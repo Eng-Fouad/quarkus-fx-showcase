@@ -108,7 +108,7 @@ public class RtlPage implements FeaturePage {
         List<Check> early = checks.early;
 
         Font kufi = ControlsUi.droidKufi();
-        early.add(Checks.run("Font.loadFont(stream) Droid Kufi", () -> kufi.getFamily() + " / " + kufi.getName()));
+        early.add(ControlsUi.droidKufiCheck("Font.loadFont(stream) Droid Kufi"));
 
         VBox ltr = form(ENGLISH, NodeOrientation.LEFT_TO_RIGHT, null);
         VBox rtl = form(ARABIC, NodeOrientation.RIGHT_TO_LEFT, kufi);
@@ -217,7 +217,7 @@ public class RtlPage implements FeaturePage {
         }
         plans.selectToggle(plans.getToggles().get(1));
 
-        Slider volume = new Slider(0, 100, 30);
+        Slider volume = ControlsUi.staticTicks(new Slider(0, 100, 30));
         volume.setShowTickMarks(true);
         volume.setShowTickLabels(true);
         volume.setMajorTickUnit(25);
