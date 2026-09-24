@@ -125,8 +125,9 @@ public class InputsPage implements FeaturePage {
         wrapped.setPrefRowCount(5);
         StringBuilder lines = new StringBuilder();
         for (int i = 1; i <= 40; i++) {
+            // "\n" and not "%n" : the same text whatever the line separator of the operating system
             lines.append(String.format(Locale.ROOT, "Line %02d : a line that is wider than the text area viewport, "
-                    + "to scroll horizontally too%n", i));
+                    + "to scroll horizontally too\n", i));
         }
         TextArea scrolled = new TextArea(lines.toString().stripTrailing());
         scrolled.setId("scrolled-area");
@@ -357,8 +358,11 @@ public class InputsPage implements FeaturePage {
         }, Fx.FX_THREAD).thenCompose(v -> Fx.pulses(2)).thenRunAsync(() -> {
             ControlsUi.ChecksHolder holder = ControlsUi.find(content, ControlsUi.ChecksHolder.class);
             List<Check> late = new ArrayList<>();
+            // TextAreaSkin round-trips the values through the scroll pane (value / max * max) : the maximum depends on
+            // the font metrics of the operating system, and may leave a last-bit difference (e.g. 119.99999999999999)
             late.add(Checks.expect("TextArea scrollTop / scrollLeft", "120.0 / 40.0",
-                    () -> scrolled.getScrollTop() + " / " + scrolled.getScrollLeft()));
+                    () -> String.format(Locale.ROOT, "%.1f / %.1f", scrolled.getScrollTop(),
+                            scrolled.getScrollLeft())));
             // tick labels are Text nodes of the NumberAxis drawn by SliderSkin, fully opaque when not animated
             late.add(Checks.run("rendered Slider tick labels / opacity", () -> {
                 Node axis = content.lookup("#formatted-slider").lookup(".axis");

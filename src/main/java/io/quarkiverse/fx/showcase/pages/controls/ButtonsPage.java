@@ -368,7 +368,8 @@ public class ButtonsPage implements FeaturePage {
                         .map(e -> e.getKey().getName())
                         .sorted()
                         .collect(Collectors.joining(", "));
-                // none on macOS, where LabeledSkinBase does not register mnemonics
+                // none on macOS, where LabeledSkinBase does not register mnemonics, an Alt combination on Windows
+                // and Linux (reported, not compared)
                 return names.isEmpty() ? "none registered" : names;
             }));
             late.add(Checks.expect("CSS -fx-graphic url() (relative / root / inline / data)",
