@@ -17,6 +17,7 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.Fx;
 import io.quarkiverse.fx.showcase.core.MainView;
+import io.quarkiverse.fx.showcase.core.Platforms;
 import io.quarkiverse.fx.showcase.core.ShowcaseMode;
 import javafx.event.Event;
 import javafx.geometry.Pos;
@@ -257,6 +258,27 @@ final class WindowSupport {
     }
 
     /**
+     * Whether a coordinate or size of {@code window} is the requested one, give or take less than one device pixel :
+     * with a fractional output scale (125 % or 150 % on Windows, for example), the OS places and sizes windows in whole
+     * device pixels, so a logical coordinate can come back rounded. With the integer scales of macOS, only an exact
+     * match passes.
+     */
+    static boolean near(double actual, double requested, Window window) {
+        double scale = Math.max(1, Math.max(window.getOutputScaleX(), window.getOutputScaleY()));
+        return Math.abs(actual - requested) < 1 / scale;
+    }
+
+    /**
+     * Status of a check of the position or size of a window, {@code ok} telling whether it is the requested one. A
+     * mismatch is a failure, except on Linux where the window manager has the last word on window geometry (GNOME
+     * attaches modal dialogs to the center of their owner, window managers keep new windows inside the work area...) :
+     * the check is informational there.
+     */
+    static Boolean placement(boolean ok) {
+        return ok ? Boolean.TRUE : Platforms.isLinux() ? null : Boolean.FALSE;
+    }
+
+    /**
      * A coordinate or size rounded to 0.1 (layout computations may leave floating point noise).
      */
     static String fmt(double value) {
@@ -277,6 +299,11 @@ final class WindowSupport {
         final Map<String, Image> images = new LinkedHashMap<>();
         /** Facts recorded by the steps, per captured image key. */
         final Map<String, String> notes = new LinkedHashMap<>();
+        /**
+         * Whether the captured window is at the requested position (see {@link WindowSupport#near}), per captured image
+         * key.
+         */
+        final Map<String, Boolean> placed = new LinkedHashMap<>();
         final List<Window> opened = new ArrayList<>();
         private final String title;
         private boolean disposed;
