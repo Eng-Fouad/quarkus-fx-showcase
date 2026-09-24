@@ -25,6 +25,7 @@ import javafx.collections.ObservableList;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.Scene;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
@@ -152,7 +153,7 @@ public class ListViewPage implements FeaturePage {
         combos.setEditable(true);
         combos.setCellFactory(ComboBoxListCell.forListView(priorities));
 
-        // 10. styled through CSS only
+        // 10. styled through CSS only, including its skin (-fx-skin, loaded reflectively) and -fx-fixed-cell-size
         ListView<String> fancy = new ListView<>(FXCollections.observableArrayList("Mercury", "Venus", "Earth", "Mars",
                 "Jupiter", "Saturn", "Uranus", "Neptune"));
         fancy.getStyleClass().add("fancy-list");
@@ -191,21 +192,21 @@ public class ListViewPage implements FeaturePage {
         cellChecks.setPrefWidth(508);
 
         HBox rowA = DataUi.row(
-                demo("ListView<String> · selected", strings, COL, 206),
-                demo("custom cells (graphics)", swatches, COL, 206),
-                demo("SelectionMode.MULTIPLE", multipleBox, COL, 206),
-                demo("empty · placeholder", empty, COL, 206),
-                demo("CheckBoxListCell", checkList, COL, 206));
+                demo("ListView<String> · selected", strings, COL, 192),
+                demo("custom cells (graphics)", swatches, COL, 192),
+                demo("SelectionMode.MULTIPLE", multipleBox, COL, 192),
+                demo("empty · placeholder", empty, COL, 192),
+                demo("CheckBoxListCell", checkList, COL, 192));
         VBox rowB = demo("Orientation.HORIZONTAL · custom tile cells", horizontal, 1028, 84);
         HBox rowC = DataUi.row(
-                demo("TextFieldListCell (editable)", textFields, COL, 160),
-                demo("ChoiceBoxListCell (editable)", choices, COL, 160),
-                demo("ComboBoxListCell (editable)", combos, COL, 160),
-                demo("styled with CSS only", fancy, COL, 160),
+                demo("TextFieldListCell · row 4 editing", textFields, COL, 160),
+                demo("ChoiceBoxListCell · row 3 editing", choices, COL, 160),
+                demo("ComboBoxListCell · row 2 editing", combos, COL, 160),
+                demo("CSS only · -fx-skin · fixed cell size", fancy, COL, 160),
                 demo("disabled", disabled, COL, 160));
         HBox rowD = DataUi.row(selectionChecks, cellChecks);
 
-        VBox root = DataUi.page(new VBox(10, rowA, rowB, rowC, rowD));
+        VBox root = DataUi.page(new VBox(8, rowA, rowB, rowC, rowD));
 
         CompletionStage<?> ready = Fx.pulses(4).thenRun(() -> {
             List<Check> cells = new ArrayList<>();
@@ -224,6 +225,27 @@ public class ListViewPage implements FeaturePage {
             cells.add(check("selected cell pseudo classes", () -> DataUi.cell(fancy, ".list-cell", 2)
                     .getPseudoClassStates().stream().map(Object::toString).filter(c -> !c.startsWith("nth-"))
                     .sorted().collect(java.util.stream.Collectors.joining(" "))));
+            cells.add(Checks.expect("-fx-skin (CSS, reflective)", FooterListViewSkin.class.getSimpleName(),
+                    () -> fancy.getSkin().getClass().getSimpleName()));
+            cells.add(Checks.expect("-fx-fixed-cell-size (CSS)", "26 / 26",
+                    () -> Math.round(fancy.getFixedCellSize()) + " / "
+                            + Math.round(DataUi.cell(fancy, ".list-cell", 0).getHeight())));
+
+            // editing state of the TextField / ChoiceBox / ComboBox cells: ListCell.startEdit() requests the focus
+            // on the ListView (and TextFieldListCell on its TextField), which invisible nodes cannot receive, so the
+            // focus owner is left unchanged (no caret, no focused colors)
+            Scene scene = root.getScene();
+            Node focusOwner = scene == null ? null : scene.getFocusOwner();
+            editWithoutFocus(textFields, 3);
+            editWithoutFocus(choices, 2);
+            editWithoutFocus(combos, 1);
+            List<Check> editing = new ArrayList<>();
+            editing.add(Checks.expect("TextFieldListCell editing", "TextField = Delta", () -> editor(textFields, 3)));
+            editing.add(Checks.expect("ChoiceBoxListCell editing", "ChoiceBox = Medium", () -> editor(choices, 2)));
+            editing.add(Checks.expect("ComboBoxListCell editing", "ComboBox = Low", () -> editor(combos, 1)));
+            editing.add(Checks.expect("focus owner unchanged by edit", true,
+                    () -> scene != null && scene.getFocusOwner() == focusOwner));
+            selectionChecks.complete(editing);
             cellChecks.complete(cells);
         });
         DataUi.setReady(root, ready);
@@ -233,6 +255,31 @@ public class ListViewPage implements FeaturePage {
     @Override
     public CompletionStage<?> ready(Node content) {
         return DataUi.ready(content);
+    }
+
+    private static void editWithoutFocus(ListView<?> list, int index) {
+        boolean visible = list.isVisible();
+        list.setVisible(false);
+        try {
+            list.edit(index);
+        } finally {
+            list.setVisible(visible);
+        }
+    }
+
+    /**
+     * "EditorClass = value" of the editing cell at {@code index}.
+     */
+    private static String editor(ListView<?> list, int index) {
+        ListCell<?> cell = DataUi.cell(list, ".list-cell", index);
+        if (!cell.isEditing()) {
+            return "not editing (editing index " + list.getEditingIndex() + ")";
+        }
+        Node graphic = cell.getGraphic();
+        Object value = graphic instanceof javafx.scene.control.TextField textField ? textField.getText()
+                : graphic instanceof javafx.scene.control.ChoiceBox<?> choiceBox ? choiceBox.getValue()
+                : graphic instanceof javafx.scene.control.ComboBox<?> comboBox ? comboBox.getValue() : null;
+        return (graphic == null ? "no graphic" : graphic.getClass().getSimpleName()) + " = " + value;
     }
 
     private static final class SwatchCell extends ListCell<Swatch> {
