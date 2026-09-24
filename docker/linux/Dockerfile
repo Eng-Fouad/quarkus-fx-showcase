@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential zlib1g-dev libfreetype-dev \
         curl unzip ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
+# No sound card in a container : play audio to the ALSA null device
+RUN printf 'pcm.!default {\n    type null\n}\n' > /etc/asound.conf
 COPY --from=graalvm /opt/graalvm /opt/graalvm
 ENV JAVA_HOME=/opt/graalvm GRAALVM_HOME=/opt/graalvm PATH=/opt/graalvm/bin:$PATH
 COPY xvfb-exec /usr/local/bin/xvfb-exec

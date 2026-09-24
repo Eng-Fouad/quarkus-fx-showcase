@@ -59,6 +59,7 @@ public class Compare {
         List<String> lines = new ArrayList<>();
         int mismatches = 0;
         int errorPages = 0;
+        int sameErrorPages = 0;
 
         lines.add("A = " + a + " (" + reportA.getOrDefault("runtime", "?") + ")");
         lines.add("B = " + b + " (" + reportB.getOrDefault("runtime", "?") + ")");
@@ -101,17 +102,24 @@ public class Compare {
                     notes.add("extras: A=" + pa.get("extras") + " | B=" + pb.get("extras"));
                 }
             }
-            for (var entry : Map.of("A", pa == null ? Map.<String, Object> of() : pa, "B", pb == null ? Map.<String, Object> of() : pb).entrySet()) {
-                Object errors = entry.getValue().get("errors");
-                if (errors instanceof List<?> list && !list.isEmpty()) {
-                    list.forEach(e -> notes.add("error in " + entry.getKey() + ": " + e));
-                }
+            List<?> errorsA = pa != null && pa.get("errors") instanceof List<?> l ? l : List.of();
+            List<?> errorsB = pb != null && pb.get("errors") instanceof List<?> l ? l : List.of();
+            boolean sameErrors = !errorsA.isEmpty() && String.valueOf(errorsA).equals(String.valueOf(errorsB));
+            if (sameErrors) {
+                // not a difference between the two runs (e.g. a JavaFX bug or a missing device on this machine)
+                errorsA.forEach(e -> notes.add("same error in both: " + e));
+            } else {
+                errorsA.forEach(e -> notes.add("error in A: " + e));
+                errorsB.forEach(e -> notes.add("error in B: " + e));
             }
             if (!notes.isEmpty()) {
                 if (notes.stream().anyMatch(n -> n.startsWith("error"))) {
                     errorPages++;
                 }
-                if (notes.stream().anyMatch(n -> !n.startsWith("error"))) {
+                if (sameErrors) {
+                    sameErrorPages++;
+                }
+                if (notes.stream().anyMatch(n -> !n.startsWith("error") && !n.startsWith("same error"))) {
                     mismatches++;
                 }
                 pageNotes.put(id, notes);
@@ -130,8 +138,9 @@ public class Compare {
         long identical = images.stream().filter(r -> r.status.equals("IDENTICAL")).count();
         long noise = images.stream().filter(r -> r.status.equals("NOISE")).count();
         String verdict = mismatches == 0 && errorPages == 0 ? "MATCH" : "MISMATCH";
-        lines.add(0, String.format("%s : %d/%d images identical, %d floating point noise, %d mismatches, %d pages with errors",
-                verdict, identical, images.size(), noise, mismatches, errorPages));
+        lines.add(0, String.format("%s : %d/%d images identical, %d floating point noise, %d mismatches, %d pages with errors, "
+                + "%d pages with the same errors in both runs", verdict, identical, images.size(), noise, mismatches, errorPages,
+                sameErrorPages));
         Files.write(out.resolve("summary.txt"), lines, StandardCharsets.UTF_8);
         writeHtml(out, a, b, reportA, reportB, images, pageNotes, lines.getFirst());
         lines.forEach(System.out::println);
