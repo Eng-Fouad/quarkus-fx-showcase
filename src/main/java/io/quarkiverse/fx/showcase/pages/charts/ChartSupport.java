@@ -59,8 +59,15 @@ final class ChartSupport {
     /**
      * Chart checks need CSS and layout (axis ranges, styled nodes) : they are computed once the page is shown and
      * a few pulses were rendered, then displayed in {@code holder}.
+     * <p>
+     * The charts compute their axes (auto ranges, CategoryAxis categories, tick marks) in their own layout pass : if
+     * the scene did not lay the page out, the checks would read a chart that was never laid out (e.g. no categories,
+     * the default 0..100 range). This happens when an exception thrown by an earlier layout pass left an ancestor of
+     * the page in "performing layout" state (JavaFX {@code Parent.layout()} does not reset it) : the scene never lays
+     * out anything below it again. The page is then laid out here, so that the chart checks stay meaningful, and the
+     * malfunction is reported as a failed check.
      */
-    static void checksAfterLayout(Node root, Pane holder, String title, Supplier<List<Check>> checks) {
+    static void checksAfterLayout(Region root, Pane holder, String title, Supplier<List<Check>> checks) {
         CompletableFuture<Void> done = new CompletableFuture<>();
         root.getProperties().put(READY_KEY, done);
         Runnable fill = () -> Fx.pulses(3).thenRun(() -> {
@@ -68,7 +75,17 @@ final class ChartSupport {
                 return;
             }
             try {
-                holder.getChildren().setAll(Checks.view(title, checks.get()));
+                List<Check> all = new ArrayList<>();
+                // sized by its parent : the scene's layout pass reached the page, and laid its charts out
+                if (root.getWidth() <= 0 || root.getHeight() <= 0) {
+                    all.add(Check.fail("page laid out by the scene",
+                            "no : the page was not laid out within 3 pulses (layout of an ancestor blocked by an earlier "
+                                    + "layout exception?), checks computed after applyCss() / layout() of the page"));
+                    root.applyCss();
+                    root.layout();
+                }
+                all.addAll(checks.get());
+                holder.getChildren().setAll(Checks.view(title, all));
                 done.complete(null);
             } catch (Throwable t) {
                 holder.getChildren().setAll(Checks.view(title, List.of(Check.fail("checks", Checks.describe(t)))));
