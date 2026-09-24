@@ -16,6 +16,7 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms.Families;
 import io.quarkiverse.fx.showcase.pages.text.Ui;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Group;
@@ -266,7 +267,7 @@ public class ImagesPixelsPage implements FeaturePage {
 
         // 15. snapshot of nodes with effects
         Text fx = new Text("FX");
-        fx.setFont(Font.font("Helvetica Neue", FontWeight.BOLD, 44));
+        fx.setFont(Font.font(Families.sans(), FontWeight.BOLD, 44)); // "Helvetica Neue" on macOS
         fx.setFill(Color.web("#ef6c00"));
         fx.setEffect(new DropShadow(6, 3, 3, Color.web("#00000080")));
         Circle glow = new Circle(22, Color.web("#7e57c2"));
@@ -426,7 +427,7 @@ public class ImagesPixelsPage implements FeaturePage {
         Polygon triangle = new Polygon(58, 52, 78, 52, 68, 34);
         triangle.setFill(Color.web("#fb8c00"));
         Text text = new Text(28, 16, "FX");
-        text.setFont(Font.font("Helvetica", FontWeight.BOLD, 14));
+        text.setFont(Font.font(Families.helvetica(), FontWeight.BOLD, 14)); // "Helvetica" on macOS
         text.setFill(Color.web("#0d47a1"));
         return new Group(background, solid, circle, triangle, text);
     }
