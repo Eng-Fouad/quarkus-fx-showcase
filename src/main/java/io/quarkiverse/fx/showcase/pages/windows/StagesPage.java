@@ -111,8 +111,7 @@ public class StagesPage implements FeaturePage {
 
     @Override
     public Node build() {
-        VBox root = WindowSupport.styled(new VBox(12));
-        root.getStyleClass().add("windows-page");
+        VBox root = WindowSupport.page(10);
 
         GridPane cards = new GridPane();
         cards.setHgap(14);
@@ -129,6 +128,8 @@ public class StagesPage implements FeaturePage {
                 "TRANSPARENT_WINDOW=" + Platform.isSupported(ConditionalFeature.TRANSPARENT_WINDOW)
                         + ", UNIFIED_WINDOW=" + Platform.isSupported(ConditionalFeature.UNIFIED_WINDOW)
                         + ", EXTENDED_WINDOW=" + Platform.isSupported(ConditionalFeature.EXTENDED_WINDOW)));
+        checks.add(headerBarCheck());
+        checks.add(WindowSupport.iconFontCheck());
         VBox live = WindowSupport.liveSection(root, LIVE_TITLE, checks,
                 "Opens the 7 stages at fixed offsets from the main window, captures their scenes, closes them.",
                 this::runLive);
@@ -150,6 +151,21 @@ public class StagesPage implements FeaturePage {
     @Override
     public void dispose(Node content) {
         WindowSupport.dispose(content);
+    }
+
+    /**
+     * HeaderBar (preview) : created when preview features are enabled, refused otherwise. The flag is read by a static
+     * initializer (com.sun.javafx.PreviewFeature), so the outcome also tells whether it was frozen at build time.
+     */
+    private static Check headerBarCheck() {
+        try {
+            HeaderBar bar = new HeaderBar();
+            return Check.info("new HeaderBar() (preview)", "created, " + bar.getChildrenUnmodifiable().size()
+                    + " children");
+        } catch (RuntimeException e) {
+            return Check.info("new HeaderBar() (preview)", "refused (" + e.getClass().getSimpleName() + "): "
+                    + String.valueOf(e.getMessage()).lines().findFirst().orElse(""));
+        }
     }
 
     private static List<Image> icons() {
@@ -394,12 +410,15 @@ public class StagesPage implements FeaturePage {
             size.getStyleClass().add("demo-note");
             VBox box = new VBox(2, view, size);
             box.setAlignment(Pos.BOTTOM_CENTER);
+            box.setMinWidth(Region.USE_PREF_SIZE);
             icons.getChildren().add(box);
         }
-        VBox card = new VBox(8, icons,
-                WindowSupport.note("stage.getIcons() of the decorated stage (not drawn by macOS)."),
-                WindowSupport.note("Events: WINDOW_SHOWING → WINDOW_SHOWN → WINDOW_HIDING → WINDOW_HIDDEN"),
-                WindowSupport.note("Opacity 0.9 on the utility stage; the owned stage is WINDOW_MODAL."));
+        Label iconsNote = WindowSupport.note("stage.getIcons() of the decorated stage (macOS does not draw them)");
+        HBox.setHgrow(iconsNote, Priority.ALWAYS);
+        icons.getChildren().add(iconsNote);
+        VBox card = new VBox(6, icons,
+                WindowSupport.note("WindowEvents: SHOWING, SHOWN, CLOSE_REQUEST (vetoed), CLOSE_REQUEST, HIDING, "
+                        + "HIDDEN"));
         card.getStyleClass().add("launcher-box");
         card.setPadding(new Insets(8));
         card.setPrefWidth(CONTENT_WIDTH + 2);
@@ -425,7 +444,9 @@ public class StagesPage implements FeaturePage {
         boolean mainFocused = main.isFocused();
         Set<Window> before = WindowSupport.showingWindows();
         Map<Spec, Stage> stages = new LinkedHashMap<>();
+        Map<Spec, double[]> offsets = new LinkedHashMap<>();
         List<String> events = new ArrayList<>();
+        int[] closeRequests = { 0 };
 
         int index = 0;
         for (Spec spec : specs()) {
@@ -442,8 +463,7 @@ public class StagesPage implements FeaturePage {
                     probe.hide();
                 } catch (RuntimeException e) {
                     String message = String.valueOf(e.getMessage()).lines().findFirst().orElse("");
-                    live.checks.add(Check.info(spec.caption(),
-                            "supported, preview features disabled: " + e.getClass().getSimpleName() + ": " + message));
+                    live.checks.add(Check.info(spec.caption(), "refused (preview features disabled): " + message));
                     continue;
                 }
             }
@@ -455,10 +475,20 @@ public class StagesPage implements FeaturePage {
                     case "decorated" -> {
                         stage.getIcons().setAll(icons());
                         stage.addEventHandler(WindowEvent.ANY, e -> events.add(e.getEventType().getName()));
+                        // the first close request is vetoed, the second one closes the stage
+                        stage.setOnCloseRequest(e -> {
+                            if (closeRequests[0]++ == 0) {
+                                e.consume();
+                            }
+                        });
                     }
                     case "transparent", "unified" -> scene.setFill(Color.TRANSPARENT);
                     case "extended" -> scene.setFill(Color.WHITE);
-                    case "utility" -> stage.setOpacity(0.9);
+                    case "utility" -> {
+                        stage.setOpacity(0.9);
+                        stage.setResizable(false);
+                        stage.setAlwaysOnTop(true);
+                    }
                     case "window-modal" -> {
                         stage.initOwner(main);
                         stage.initModality(spec.modality());
@@ -471,8 +501,10 @@ public class StagesPage implements FeaturePage {
                 stage.setX(x);
                 stage.setY(y);
                 stage.show();
+                WindowSupport.shield(stage);
                 live.opened.add(stage);
                 stages.put(spec, stage);
+                offsets.put(spec, new double[] { x - main.getX(), y - main.getY() });
             } catch (Throwable t) {
                 live.checks.add(Check.fail(spec.caption(), Checks.describe(t)));
             }
@@ -486,7 +518,7 @@ public class StagesPage implements FeaturePage {
                 Spec spec = entry.getKey();
                 Stage stage = entry.getValue();
                 try {
-                    live.checks.add(stageCheck(spec, stage, main));
+                    live.checks.add(stageCheck(spec, stage, main, offsets.get(spec)));
                     live.images.put(spec.key(), WindowSupport.capture(stage.getScene()));
                 } catch (Throwable t) {
                     live.checks.add(Check.fail(spec.caption(), Checks.describe(t)));
@@ -497,13 +529,16 @@ public class StagesPage implements FeaturePage {
             live.checks.add(Check.of("Window.getWindows() while open", listed == stages.size() && newWindows == listed,
                     listed + " of " + stages.size() + " opened stages listed, " + newWindows + " new stages"));
 
+            stages.entrySet().stream().filter(e -> e.getKey().key().equals("decorated")).map(Map.Entry::getValue)
+                    .findFirst().ifPresent(stage -> live.checks.add(lifecycleCheck(stage)));
             stages.values().forEach(Stage::close);
             long stillShowing = stages.values().stream().filter(Window::isShowing).count();
             long stillListed = stages.values().stream().filter(s -> Window.getWindows().contains(s)).count();
             live.checks.add(Check.of("After close()", stillShowing == 0 && stillListed == 0,
                     stillShowing + " showing, " + stillListed + " listed"));
             live.checks.add(Checks.expect("WindowEvents (decorated)",
-                    "WINDOW_SHOWING WINDOW_SHOWN WINDOW_HIDING WINDOW_HIDDEN", () -> String.join(" ", events)));
+                    "SHOWING SHOWN CLOSE_REQUEST CLOSE_REQUEST HIDING HIDDEN",
+                    () -> String.join(" ", events).replace("WINDOW_", "")));
         }).thenRun(() -> {
             live.closeAll();
             if (mainFocused && !main.isFocused()) {
@@ -513,15 +548,43 @@ public class StagesPage implements FeaturePage {
         });
     }
 
-    private static Check stageCheck(Spec spec, Stage stage, Stage main) {
+    /**
+     * On a showing stage : initStyle() is refused, a consumed close request keeps it open, an unconsumed one (handled
+     * by the default WindowCloseRequestHandler) closes it.
+     */
+    private static Check lifecycleCheck(Stage stage) {
+        List<String> steps = new ArrayList<>();
+        try {
+            stage.initStyle(StageStyle.UTILITY);
+            steps.add("initStyle accepted");
+        } catch (IllegalStateException e) {
+            steps.add("initStyle refused");
+        }
+        stage.fireEvent(new WindowEvent(stage, WindowEvent.WINDOW_CLOSE_REQUEST));
+        boolean vetoed = stage.isShowing();
+        steps.add("close request " + (vetoed ? "vetoed" : "NOT vetoed"));
+        stage.fireEvent(new WindowEvent(stage, WindowEvent.WINDOW_CLOSE_REQUEST));
+        boolean closed = !stage.isShowing();
+        steps.add("close request " + (closed ? "closed it" : "did NOT close it"));
+        return Check.of("Showing stage lifecycle (decorated)", steps.get(0).equals("initStyle refused") && vetoed
+                && closed, String.join(", ", steps));
+    }
+
+    private static Check stageCheck(Spec spec, Stage stage, Stage main, double[] offset) {
         Scene scene = stage.getScene();
         boolean sizeOk = scene.getWidth() == CONTENT_WIDTH && scene.getHeight() == CONTENT_HEIGHT;
+        double dx = stage.getX() - main.getX();
+        double dy = stage.getY() - main.getY();
+        boolean positionOk = dx == offset[0] && dy == offset[1];
         StringBuilder value = new StringBuilder();
         value.append(stage.isShowing() ? "showing" : "NOT showing").append(", ").append(stage.getStyle())
+                .append(", at +").append(WindowSupport.fmt(dx)).append(",+").append(WindowSupport.fmt(dy))
+                .append(positionOk ? "" : " (requested +" + WindowSupport.fmt(offset[0]) + ",+"
+                        + WindowSupport.fmt(offset[1]) + ")")
                 .append(", scene ").append(WindowSupport.size(scene.getWidth(), scene.getHeight()))
                 .append(", frame +").append(WindowSupport.fmt(stage.getWidth() - scene.getWidth())).append("x+")
                 .append(WindowSupport.fmt(stage.getHeight() - scene.getHeight()));
-        boolean ok = stage.isShowing() && stage.getStyle() == spec.style() && sizeOk;
+        boolean ok = stage.isShowing() && stage.getStyle() == spec.style() && sizeOk && positionOk;
         switch (spec.key()) {
             case "decorated" -> {
                 value.append(", icons ").append(stage.getIcons().stream()
@@ -531,8 +594,9 @@ public class StagesPage implements FeaturePage {
             }
             case "transparent" -> value.append(", fill ").append(scene.getFill());
             case "utility" -> {
-                value.append(", opacity ").append(stage.getOpacity());
-                ok &= stage.getOpacity() == 0.9;
+                value.append(", opacity ").append(stage.getOpacity()).append(", alwaysOnTop ")
+                        .append(stage.isAlwaysOnTop()).append(", resizable ").append(stage.isResizable());
+                ok &= stage.getOpacity() == 0.9 && stage.isAlwaysOnTop() && !stage.isResizable();
             }
             case "unified" -> value.append(", supported ").append(Platform.isSupported(ConditionalFeature.UNIFIED_WINDOW));
             case "window-modal" -> {
