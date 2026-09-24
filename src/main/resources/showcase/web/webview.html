@@ -23,7 +23,7 @@ body {
     color: #1f2933;
     background: linear-gradient(135deg, #eef2f7 0%, #dde6f0 100%);
     width: 1028px;
-    height: 380px;
+    height: 370px;
 }
 .grid {
     display: flex;
@@ -34,7 +34,7 @@ body {
 .card {
     box-sizing: border-box;
     width: 244px;
-    height: 175px;
+    height: 170px;
     padding: 7px 10px;
     background: #ffffff;
     border-radius: 10px;
@@ -228,7 +228,7 @@ input[type=range], progress {
 
     <div class="card">
         <h3>Canvas (JavaScript)</h3>
-        <canvas id="canvas" width="224" height="145"></canvas>
+        <canvas id="canvas" width="224" height="134" style="display: block; width: 224px; height: 134px;"></canvas>
     </div>
 
     <div class="card">
@@ -280,12 +280,19 @@ input[type=range], progress {
 <script>
 function drawCanvas() {
     var canvas = document.getElementById('canvas');
+    // WebKit allocates canvas buffers at the device pixel ratio (2 on a Retina screen) : a backing store of
+    // 224 / ratio CSS pixels gives a buffer of 224 x 134 device pixels, rendered 1:1 (no resampling) when the page is
+    // captured at scale 1 by the snapshots
+    var ratio = Math.max(1, Math.round(window.devicePixelRatio || 1));
+    canvas.width = 224 / ratio;
+    canvas.height = 134 / ratio;
     var ctx = canvas.getContext('2d');
-    var bg = ctx.createLinearGradient(0, 0, 224, 145);
+    ctx.setTransform(1 / ratio, 0, 0, 1 / ratio, 0, 0);
+    var bg = ctx.createLinearGradient(0, 0, 224, 134);
     bg.addColorStop(0, '#0f172a');
     bg.addColorStop(1, '#1e40af');
     ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, 224, 145);
+    ctx.fillRect(0, 0, 224, 134);
 
     var colors = ['#f97316', '#facc15', '#22c55e', '#06b6d4', '#a855f7'];
     var values = [30, 20, 25, 15, 10];
@@ -322,10 +329,33 @@ function drawCanvas() {
     ctx.font = 'bold 13px Helvetica, Arial, sans-serif';
     ctx.fillText('Canvas 2D', 128, 24);
     ctx.font = '11px Helvetica, Arial, sans-serif';
-    ctx.fillText('arc · gradient · path', 126, 136);
+    ctx.fillText('arc · gradient · path', 126, 127);
     document.body.setAttribute('data-canvas', 'drawn');
 }
 drawCanvas();
+
+/**
+ * Invalidates the canvas without changing its pixels (a transparent pixel drawn over it) : WebKit paints it again.
+ */
+function touchCanvas() {
+    var ctx = document.getElementById('canvas').getContext('2d');
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0)';
+    ctx.fillRect(0, 0, 1, 1);
+    ctx.restore();
+}
+
+/**
+ * Pixel of the canvas at (x, y) CSS pixels : page coordinates and the RGB of getImageData.
+ */
+function canvasProbe(x, y) {
+    var canvas = document.getElementById('canvas');
+    var r = canvas.getBoundingClientRect();
+    var k = canvas.width / r.width;
+    var d = canvas.getContext('2d').getImageData(Math.floor(x * k), Math.floor(y * k), 1, 1).data;
+    return [Math.round(r.left) + x, Math.round(r.top) + y, d[0], d[1], d[2], d[3]].join(',');
+}
 
 function greet(name) {
     return 'Hello ' + name + ' from JavaScript';

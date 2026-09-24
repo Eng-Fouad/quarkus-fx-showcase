@@ -44,6 +44,10 @@ import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import javax.swing.plaf.basic.BasicHTML;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.html.CSS;
+import javax.swing.text.html.HTMLEditorKit;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 
@@ -54,6 +58,7 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import javafx.animation.AnimationTimer;
 import javafx.animation.PauseTransition;
 import javafx.application.Platform;
 import javafx.embed.swing.SwingFXUtils;
@@ -66,6 +71,7 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.Label;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.image.PixelFormat;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.PixelWriter;
 import javafx.scene.image.WritableImage;
@@ -179,6 +185,7 @@ public class SwingInteropPage implements FeaturePage {
                 // lets the painted Swing content reach the SwingNode
                 .thenCompose(v -> Fx.pulses(10))
                 .thenCompose(v -> Fx.delay(600))
+                .thenCompose(v -> stable(swingHolder, 10_000))
                 .thenCompose(v -> Fx.pulses(5));
         // the Swing checks never arrive when the EDT task could not run
         PauseTransition guard = new PauseTransition(Duration.seconds(20));
@@ -186,6 +193,48 @@ public class SwingInteropPage implements FeaturePage {
         guard.play();
         state.swing.whenComplete((v, e) -> Platform.runLater(guard::stop));
         return root;
+    }
+
+    /**
+     * Completes once snapshots of {@code node}, taken every 4 pulses, were identical 3 times in a row (the Swing
+     * content is painted asynchronously, on the EDT, then copied to the SwingNode). A timeout only ends the wait.
+     */
+    private static CompletionStage<Void> stable(Node node, double timeoutMillis) {
+        CompletableFuture<Void> done = new CompletableFuture<>();
+        new AnimationTimer() {
+            private long start = -1;
+            private int pulses;
+            private int[] previous;
+            private int identical;
+
+            @Override
+            public void handle(long now) {
+                if (start < 0) {
+                    start = now;
+                }
+                if (++pulses % 4 != 0) {
+                    return;
+                }
+                try {
+                    WritableImage image = node.snapshot(null, null);
+                    int width = (int) image.getWidth();
+                    int height = (int) image.getHeight();
+                    int[] pixels = new int[width * height];
+                    image.getPixelReader().getPixels(0, 0, width, height, PixelFormat.getIntArgbInstance(), pixels, 0,
+                            width);
+                    identical = java.util.Arrays.equals(pixels, previous) ? identical + 1 : 0;
+                    previous = pixels;
+                } catch (Throwable t) {
+                    // rendering failures show in the page snapshot : the wait ends
+                    identical = Integer.MAX_VALUE;
+                }
+                if (identical >= 2 || now - start > timeoutMillis * 1_000_000) {
+                    stop();
+                    done.complete(null);
+                }
+            }
+        }.start();
+        return done;
     }
 
     private static Label caption(String text) {
@@ -295,6 +344,32 @@ public class SwingInteropPage implements FeaturePage {
             center.add(fields, c);
 
             c.gridy++;
+            // HTML text : javax.swing.text.html parser, CSS parser and the default.css resource of java.desktop
+            try {
+                JLabel html = new JLabel("<html>HTML in a <b>JLabel</b>: <i>italic</i>, <u>underlined</u>, "
+                        + "<font color='#c62828'>red</font>, <span style='color: #1565c0; font-weight: bold'>CSS</span>"
+                        + "</html>");
+                Dimension size = html.getPreferredSize();
+                Object view = html.getClientProperty(BasicHTML.propertyKey);
+                if (view == null) {
+                    throw new IllegalStateException("no HTML view");
+                }
+                center.add(html, c);
+                boolean sized = size.width > 0 && size.height > 0;
+                checks.add(Check.of("JLabel HTML view", sized, sized ? "rendered" : "empty preferred size"));
+            } catch (Throwable t) {
+                checks.add(Check.fail("JLabel HTML view", Checks.describe(t)));
+                JLabel failed = new JLabel("JLabel HTML view failed: " + t.getClass().getSimpleName());
+                failed.setForeground(new Color(0xC62828));
+                center.add(failed, c);
+            }
+            checks.add(Checks.expect("HTMLEditorKit default.css rule h1", "font-size=x-large, font-weight=bold", () -> {
+                AttributeSet h1 = new HTMLEditorKit().getStyleSheet().getRule("h1");
+                return "font-size=" + h1.getAttribute(CSS.Attribute.FONT_SIZE) + ", font-weight="
+                        + h1.getAttribute(CSS.Attribute.FONT_WEIGHT);
+            }));
+
+            c.gridy++;
             JSlider slider = new JSlider(0, 100, 60);
             slider.setMajorTickSpacing(25);
             slider.setMinorTickSpacing(5);
@@ -328,7 +403,7 @@ public class SwingInteropPage implements FeaturePage {
             header.setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
             table.getTableHeader().setDefaultRenderer(header);
             JScrollPane scroll = new JScrollPane(table);
-            scroll.setPreferredSize(new Dimension(480, 130));
+            scroll.setPreferredSize(new Dimension(480, 120));
             center.add(scroll, c);
             panel.add(center, BorderLayout.CENTER);
 
@@ -541,7 +616,11 @@ public class SwingInteropPage implements FeaturePage {
         State state = (State) content.getProperties().get(STATE);
         if (state != null && state.swingNode != null) {
             SwingNode swingNode = state.swingNode;
-            SwingUtilities.invokeLater(() -> swingNode.setContent(null));
+            try {
+                SwingUtilities.invokeLater(() -> swingNode.setContent(null));
+            } catch (Throwable t) {
+                // AWT not available : nothing to release, the failure is reported by the page checks
+            }
         }
     }
 }
