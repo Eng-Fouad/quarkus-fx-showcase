@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -14,7 +15,10 @@ import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.Fx;
 import javafx.animation.AnimationTimer;
 import javafx.concurrent.Worker;
+import javafx.scene.Node;
 import javafx.scene.control.Label;
+import javafx.scene.image.PixelFormat;
+import javafx.scene.image.WritableImage;
 import javafx.scene.web.WebEngine;
 
 /**
@@ -54,6 +58,30 @@ final class WebSupport {
             }
         }.start();
         return done;
+    }
+
+    /**
+     * Completes (on the Fx thread) once snapshots of {@code node}, taken every 4 pulses, were identical 3 times in a
+     * row : asynchronous painting (WebKit, image decoding) is then over. Never fails : a timeout only ends the wait.
+     */
+    static CompletionStage<Void> stable(Node node, double timeoutMillis) {
+        int[] previous = { 0 };
+        int[] identical = { 0 };
+        int[] pulses = { 0 };
+        return until(() -> {
+            if (++pulses[0] % 4 != 0) {
+                return false;
+            }
+            WritableImage image = node.snapshot(null, null);
+            int width = (int) image.getWidth();
+            int height = (int) image.getHeight();
+            int[] pixels = new int[width * height];
+            image.getPixelReader().getPixels(0, 0, width, height, PixelFormat.getIntArgbInstance(), pixels, 0, width);
+            int hash = Arrays.hashCode(pixels);
+            identical[0] = hash == previous[0] ? identical[0] + 1 : 0;
+            previous[0] = hash;
+            return identical[0] >= 2;
+        }, timeoutMillis, "stable rendering").exceptionally(error -> null);
     }
 
     /**
