@@ -21,11 +21,10 @@ import static io.quarkiverse.fx.showcase.pages.graphics.Tiles.tile;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.CompletionStage;
 
 import jakarta.inject.Singleton;
 
@@ -33,7 +32,6 @@ import io.quarkiverse.fx.showcase.core.Categories;
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
-import io.quarkiverse.fx.showcase.core.Fx;
 import javafx.scene.Group;
 import javafx.scene.Node;
 import javafx.scene.layout.Region;
@@ -90,11 +88,6 @@ public class ShapesPage implements FeaturePage {
     @Override
     public int order() {
         return 10;
-    }
-
-    @Override
-    public CompletionStage<?> ready(Node content) {
-        return Tiles.warmUp(content);
     }
 
     @Override
@@ -204,7 +197,7 @@ public class ShapesPage implements FeaturePage {
 
     private static Node badge(Properties paths) {
         SVGPath svg = new SVGPath();
-        svg.setContent(paths.getProperty("badge"));
+        svg.setContent(path(paths, "badge"));
         paint(svg, TEAL_L, TEAL, 2);
         svg.setFillRule(FillRule.EVEN_ODD);
         return tile("SVGPath (resource), 3 sub-paths", W, H, svg);
@@ -245,17 +238,20 @@ public class ShapesPage implements FeaturePage {
 
     private static Node dashArrays() {
         Group group = new Group();
-        double[][] arrays = { { 10, 5 }, { 2, 4 }, { 16, 4, 4, 4 }, { 1, 3 } };
+        // BUTT caps : the default SQUARE caps extend every dash by half the stroke width and hide short gaps
+        double[][] arrays = { { 10, 5 }, { 2, 4 }, { 16, 4, 4, 4 }, { 0, 7 } };
         for (int i = 0; i < arrays.length; i++) {
             Line line = new Line(0, 6 + i * 16, 96, 6 + i * 16);
             line.setStroke(RED);
-            line.setStrokeWidth(3);
+            line.setStrokeWidth(i == 3 ? 5 : 3);
+            // zero-length dashes with ROUND caps draw dots
+            line.setStrokeLineCap(i == 3 ? StrokeLineCap.ROUND : StrokeLineCap.BUTT);
             for (double d : arrays[i]) {
                 line.getStrokeDashArray().add(d);
             }
             group.getChildren().add(line);
         }
-        return tile("dash 10,5 | 2,4 | 16,4,4,4 | 1,3", W, H, group);
+        return tile("dash 10,5 | 2,4 | 16,4,4,4 | 0,7 round", W, H, group);
     }
 
     private static Node dashOffsets() {
@@ -264,6 +260,7 @@ public class ShapesPage implements FeaturePage {
             Line line = new Line(0, 6 + i * 16, 96, 6 + i * 16);
             line.setStroke(GREEN);
             line.setStrokeWidth(5);
+            line.setStrokeLineCap(StrokeLineCap.BUTT);
             line.getStrokeDashArray().addAll(12.0, 6.0);
             line.setStrokeDashOffset(i * 4);
             group.getChildren().add(line);
@@ -312,10 +309,12 @@ public class ShapesPage implements FeaturePage {
     private static Node strokeTypes() {
         Group group = new Group();
         StrokeType[] types = { StrokeType.INSIDE, StrokeType.OUTSIDE, StrokeType.CENTERED };
+        // geometry 20x20 at x = 0 / 36 / 76 : the OUTSIDE (32 px) and CENTERED (26 px) strokes do not touch
+        double[] xs = { 0, 36, 76 };
         for (int i = 0; i < types.length; i++) {
-            Rectangle rect = paint(new Rectangle(i * 36, 0, 24, 24), ORANGE_L, Color.web("#e65100b0"), 8);
+            Rectangle rect = paint(new Rectangle(xs[i], 0, 20, 20), ORANGE_L, Color.web("#e65100b0"), 6);
             rect.setStrokeType(types[i]);
-            Rectangle geometry = new Rectangle(i * 36, 0, 24, 24);
+            Rectangle geometry = new Rectangle(xs[i], 0, 20, 20);
             geometry.setFill(null);
             geometry.setStroke(Color.BLACK);
             geometry.getStrokeDashArray().addAll(2.0, 2.0);
@@ -367,9 +366,9 @@ public class ShapesPage implements FeaturePage {
 
     private static Node svgFillRules(Properties paths) {
         SVGPath nonZero = paint(new SVGPath(), RED_L, RED, 1.5);
-        nonZero.setContent(paths.getProperty("rings"));
+        nonZero.setContent(path(paths, "rings"));
         SVGPath evenOdd = paint(new SVGPath(), RED_L, RED, 1.5);
-        evenOdd.setContent(paths.getProperty("rings"));
+        evenOdd.setContent(path(paths, "rings"));
         evenOdd.setFillRule(FillRule.EVEN_ODD);
         evenOdd.setTranslateX(60);
         return tile("SVGPath NON_ZERO | EVEN_ODD", W, H, nonZero, evenOdd);
@@ -396,6 +395,7 @@ public class ShapesPage implements FeaturePage {
     private static Node unionOfThree() {
         Shape shape = Shape.union(Shape.union(new Circle(20, 38, 20), new Circle(46, 20, 20)), new Circle(72, 38, 20));
         paint(shape, ORANGE_L, ORANGE, 2);
+        shape.setStrokeLineCap(StrokeLineCap.BUTT);
         shape.getStrokeDashArray().addAll(6.0, 3.0);
         return tile("union x3, dashed stroke", W, H, shape);
     }
@@ -422,7 +422,7 @@ public class ShapesPage implements FeaturePage {
 
     private static Node heartStripes(Properties paths) {
         SVGPath heart = new SVGPath();
-        heart.setContent(paths.getProperty("heart"));
+        heart.setContent(path(paths, "heart"));
         Shape stripes = new Rectangle(0, 0, 100, 5);
         for (int i = 1; i < 9; i++) {
             stripes = Shape.union(stripes, new Rectangle(0, i * 11, 100, 5));
@@ -430,7 +430,7 @@ public class ShapesPage implements FeaturePage {
         Shape shape = Shape.intersect(heart, stripes);
         shape.setFill(RED);
         SVGPath outline = new SVGPath();
-        outline.setContent(paths.getProperty("heart"));
+        outline.setContent(path(paths, "heart"));
         outline.setFill(null);
         outline.setStroke(RED);
         outline.setStrokeWidth(2);
@@ -453,7 +453,7 @@ public class ShapesPage implements FeaturePage {
                 () -> pentagram(0, FillRule.EVEN_ODD).contains(0, 0)));
         checks.add(Checks.run("SVGPath badge bounds", () -> {
             SVGPath svg = new SVGPath();
-            svg.setContent(paths.getProperty("badge"));
+            svg.setContent(path(paths, "badge"));
             return Tiles.bounds(svg.getBoundsInLocal());
         }));
         checks.add(Checks.expect("OUTSIDE stroke 8 on 24x24: width", "40.00", () -> {
@@ -470,11 +470,15 @@ public class ShapesPage implements FeaturePage {
         List<Check> checks = new ArrayList<>();
         checks.add(Checks.expect("paths.properties keys", "[badge, heart, rings]",
                 () -> new java.util.TreeSet<>(paths().stringPropertyNames()).toString()));
-        checks.add(Checks.expect("-fx-stroke-dash-array", "[12.0, 5.0, 2.0, 5.0]",
+        checks.add(Checks.expect("-fx-stroke-dash-array", "[12.0, 8.0, 2.0, 8.0]",
                 () -> Tiles.css(new Rectangle(10, 10), null, "css-stroke").getStrokeDashArray().toString()));
         checks.add(Checks.expect("-fx-stroke-line-cap/join/type", "ROUND BEVEL OUTSIDE", () -> {
             Rectangle rect = Tiles.css(new Rectangle(10, 10), null, "css-stroke");
             return rect.getStrokeLineCap() + " " + rect.getStrokeLineJoin() + " " + rect.getStrokeType();
+        }));
+        checks.add(Checks.expect("-fx-stroke-dash-offset / -fx-stroke-miter-limit", "3.00 / 4.00", () -> {
+            Rectangle rect = Tiles.css(new Rectangle(10, 10), null, "css-stroke");
+            return Tiles.num(rect.getStrokeDashOffset()) + " / " + Tiles.num(rect.getStrokeMiterLimit());
         }));
         checks.add(Checks.expect("inline -fx-fill / -fx-stroke-width", "#ff000080 7.00", () -> {
             Rectangle rect = Tiles.css(new Rectangle(10, 10), "-fx-fill: #ff000080; -fx-stroke-width: 7;");
@@ -524,13 +528,24 @@ public class ShapesPage implements FeaturePage {
         return shape;
     }
 
+    /**
+     * SVG path data of {@code /showcase/graphics/paths.properties}. A missing or unreadable resource leaves the paths
+     * empty (the page still renders) and fails the "paths.properties keys" check.
+     */
     static Properties paths() {
         Properties properties = new Properties();
-        try (InputStream in = Fx.resource("/showcase/graphics/paths.properties").openStream()) {
-            properties.load(in);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
+        URL url = ShapesPage.class.getResource("/showcase/graphics/paths.properties");
+        if (url != null) {
+            try (InputStream in = url.openStream()) {
+                properties.load(in);
+            } catch (IOException e) {
+                properties.clear();
+            }
         }
         return properties;
+    }
+
+    static String path(Properties paths, String key) {
+        return paths.getProperty(key, "");
     }
 }

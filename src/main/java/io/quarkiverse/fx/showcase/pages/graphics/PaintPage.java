@@ -7,7 +7,6 @@ import static io.quarkiverse.fx.showcase.pages.graphics.Tiles.tile;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletionStage;
 
 import jakarta.inject.Singleton;
 
@@ -29,6 +28,7 @@ import javafx.scene.paint.Stop;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.Shape;
+import javafx.scene.shape.StrokeLineCap;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.scene.text.Text;
@@ -57,11 +57,6 @@ public class PaintPage implements FeaturePage {
     @Override
     public int order() {
         return 20;
-    }
-
-    @Override
-    public CompletionStage<?> ready(Node content) {
-        return Tiles.warmUp(content);
     }
 
     @Override
@@ -256,7 +251,9 @@ public class PaintPage implements FeaturePage {
         circle.setStroke(new RadialGradient(0, 0, 0.5, 0.5, 0.5, true, CycleMethod.NO_CYCLE,
                 new Stop(0.6, Color.web("#fff176")), new Stop(1, Color.web("#e65100"))));
         circle.setStrokeWidth(7);
-        circle.getStrokeDashArray().addAll(6.0, 4.0);
+        // BUTT caps : with the default SQUARE caps (dash 6 + 7) the 4 px gaps are completely covered
+        circle.setStrokeLineCap(StrokeLineCap.BUTT);
+        circle.getStrokeDashArray().addAll(7.0, 5.0);
         return tile("dashed radial stroke", W, H, circle);
     }
 

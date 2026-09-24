@@ -7,7 +7,7 @@ import static io.quarkiverse.fx.showcase.pages.graphics.Tiles.tile;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletionStage;
+import java.util.Locale;
 
 import jakarta.inject.Singleton;
 
@@ -15,8 +15,10 @@ import io.quarkiverse.fx.showcase.core.Categories;
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
+import javafx.geometry.Bounds;
 import javafx.scene.Group;
 import javafx.scene.Node;
+import javafx.scene.SnapshotParameters;
 import javafx.scene.effect.Bloom;
 import javafx.scene.effect.BlurType;
 import javafx.scene.effect.BoxBlur;
@@ -39,6 +41,7 @@ import javafx.scene.effect.SepiaTone;
 import javafx.scene.effect.Shadow;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.image.WritableImage;
 import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
 import javafx.scene.paint.CycleMethod;
@@ -74,11 +77,6 @@ public class EffectsPage implements FeaturePage {
     @Override
     public int order() {
         return 30;
-    }
-
-    @Override
-    public CompletionStage<?> ready(Node content) {
-        return Tiles.warmUp(content);
     }
 
     @Override
@@ -349,10 +347,16 @@ public class EffectsPage implements FeaturePage {
             return is.getBlurType() + " " + Tiles.num(is.getRadius()) + " " + Tiles.num(is.getChoke()) + " "
                     + Tiles.hex(is.getColor());
         }));
+        checks.add(Checks.expect("inline CSS one-pass-box / two-pass-box", "ONE_PASS_BOX / TWO_PASS_BOX", () -> {
+            Region one = Tiles.css(new Region(), "-fx-effect: dropshadow(one-pass-box, black, 5, 0, 1, 1);");
+            Text two = Tiles.css(new Text("x"), "-fx-effect: innershadow(two-pass-box, red, 5, 0, 1, 1);");
+            return ((DropShadow) one.getEffect()).getBlurType() + " / " + ((InnerShadow) two.getEffect()).getBlurType();
+        }));
         checks.add(Checks.run("40x40 + GaussianBlur(10) bounds", () -> effectBounds(new GaussianBlur(10))));
         checks.add(Checks.run("40x40 + DropShadow(10, dx=5, dy=5)", () -> effectBounds(
                 new DropShadow(BlurType.THREE_PASS_BOX, Color.BLACK, 10, 0, 5, 5))));
         checks.add(Checks.run("40x40 + PerspectiveTransform bounds", () -> effectBounds(perspectiveTransform())));
+        checks.add(Checks.run("40x40 + Reflection(0, 1, ..) bounds", () -> effectBounds(new Reflection(0, 1, 1, 0))));
         return checks;
     }
 
@@ -362,21 +366,80 @@ public class EffectsPage implements FeaturePage {
         return Tiles.bounds(rect.getBoundsInLocal());
     }
 
+    /*
+     * Every check below renders effects through Node.snapshot : each effect runs a Decora peer (loaded by reflection,
+     * e.g. PPSLinearConvolveShadowPeer, PPSInvertMaskPeer, PPSPhongLighting_SPOTPeer, PrReflectionPeer, PrFloodPeer)
+     * and, for shader-based peers, a GLSL program loaded as a resource.
+     */
     private static List<Check> pixelChecks() {
         List<Check> checks = new ArrayList<>();
-        checks.add(Checks.run("SepiaTone(1) on red, center", () -> pixel(new SepiaTone(1), 20, 20)));
-        checks.add(Checks.run("ColorAdjust(hue .5) on red, center", () -> pixel(new ColorAdjust(0.5, 0, 0, 0), 20, 20)));
-        checks.add(Checks.run("GaussianBlur(10) on red, corner", () -> pixel(new GaussianBlur(10), 10, 10)));
-        checks.add(Checks.run("Lighting Distant on red, center",
-                () -> pixel(new Lighting(new Light.Distant(45, 45, Color.WHITE)), 20, 20)));
-        checks.add(Checks.run("MotionBlur(0, 10) on red, edge", () -> pixel(new MotionBlur(0, 10), 5, 20)));
-        checks.add(Checks.run("Bloom(0) on red, center", () -> pixel(new Bloom(0), 20, 20)));
+        checks.add(Checks.run("SepiaTone / ColorAdjust / Glow, center", () -> px(square(), new SepiaTone(1), 20, 20)
+                + " / " + px(square(), new ColorAdjust(0.5, 0, 0, 0), 20, 20) + " / " + px(square(), new Glow(1), 20, 20)));
+        checks.add(Checks.run("Bloom / Glow near a white spot", () -> px(whiteSpot(), new Bloom(0.3), 11, 20) + " / "
+                + px(whiteSpot(), new Glow(1), 11, 20)));
+        checks.add(Checks.run("GaussianBlur / BoxBlur / MotionBlur, edge", () -> px(square(), new GaussianBlur(10), 1, 20)
+                + " / " + px(square(), new BoxBlur(10, 10, 3), 1, 20) + " / " + px(square(), new MotionBlur(0, 10), 1, 20)));
+        checks.add(Checks.run("Lighting Distant / Point / Spot", () -> px(square(),
+                new Lighting(new Light.Distant(45, 45, Color.WHITE)), 20, 20) + " / "
+                + px(square(), new Lighting(new Light.Point(0, 0, 30, Color.WHITE)), 20, 20) + " / "
+                + px(square(), new Lighting(spotAt(20, 20)), 20, 20)));
+        checks.add(Checks.run("DropShadow GAUSSIAN / TWO_PASS_BOX", () -> px(square(),
+                new DropShadow(BlurType.GAUSSIAN, Color.BLACK, 10, 0, 5, 5), 43, 43) + " / "
+                + px(square(), new DropShadow(BlurType.TWO_PASS_BOX, Color.BLACK, 10, 0, 5, 5), 43, 43)));
+        checks.add(Checks.run("InnerShadow edge / Shadow center", () -> px(square(),
+                new InnerShadow(BlurType.GAUSSIAN, Color.BLACK, 10, 0, 0, 0), 2, 20) + " / "
+                + px(square(), new Shadow(BlurType.GAUSSIAN, Color.web("#6a1b9a"), 10), 20, 20)));
+        checks.add(Checks.run("Reflection / ColorInput / ImageInput", () -> px(square(), new Reflection(0, 1, 0.8, 0), 20, 45)
+                + " / " + px(square(), new ColorInput(0, 0, 40, 40, Color.web("#1e88e5")), 20, 20) + " / "
+                + px(square(), new ImageInput(Tiles.image("icon.png"), 0, 0), 32, 32)));
+        checks.add(Checks.run("DisplacementMap / PerspectiveTransform", () -> {
+            FloatMap shift = new FloatMap(40, 40);
+            for (int x = 0; x < 40; x++) {
+                for (int y = 0; y < 40; y++) {
+                    shift.setSamples(x, y, 0.25f, 0f);
+                }
+            }
+            return px(ramp(), new DisplacementMap(shift), 10, 20) + " / "
+                    + px(ramp(), new PerspectiveTransform(0, 0, 40, 10, 40, 30, 0, 40), 30, 20);
+        }));
         return checks;
     }
 
-    private static String pixel(Effect effect, int x, int y) {
-        Rectangle rect = new Rectangle(40, 40, Color.RED);
-        rect.setEffect(effect);
-        return Tiles.pixel(rect, x, y);
+    private static Rectangle square() {
+        return new Rectangle(40, 40, Color.web("#c04020"));
+    }
+
+    /** A dark square with a white 10x10 spot in its center. */
+    private static Group whiteSpot() {
+        return new Group(new Rectangle(40, 40, Color.web("#203040")), Tiles.rect(15, 15, 10, 10, Color.WHITE));
+    }
+
+    /** A horizontal red to blue ramp. */
+    private static Rectangle ramp() {
+        return new Rectangle(40, 40, new LinearGradient(0, 0, 1, 0, true, CycleMethod.NO_CYCLE, new Stop(0, Color.RED),
+                new Stop(1, Color.BLUE)));
+    }
+
+    private static Light.Spot spotAt(double x, double y) {
+        Light.Spot spot = new Light.Spot(0, 0, 40, 1, Color.WHITE);
+        spot.setPointsAtX(x);
+        spot.setPointsAtY(y);
+        return spot;
+    }
+
+    /**
+     * Color (#rrggbb, over white) of the pixel at local {@code (x, y)} of {@code node} rendered with {@code effect}.
+     */
+    private static String px(Node node, Effect effect, double x, double y) {
+        node.setEffect(effect);
+        SnapshotParameters parameters = new SnapshotParameters();
+        parameters.setFill(Color.WHITE);
+        WritableImage image = node.snapshot(parameters, null);
+        Bounds bounds = node.getBoundsInParent();
+        int ix = (int) Math.floor(x - Math.floor(bounds.getMinX()));
+        int iy = (int) Math.floor(y - Math.floor(bounds.getMinY()));
+        Color c = image.getPixelReader().getColor(ix, iy);
+        return String.format(Locale.ROOT, "#%02x%02x%02x", Math.round(c.getRed() * 255), Math.round(c.getGreen() * 255),
+                Math.round(c.getBlue() * 255));
     }
 }
