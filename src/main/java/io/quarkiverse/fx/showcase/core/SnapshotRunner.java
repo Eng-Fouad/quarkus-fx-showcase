@@ -153,6 +153,11 @@ public class SnapshotRunner {
                 .thenCompose(v -> Fx.pulses(3))
                 .thenCompose(v -> Fx.delay(settleMillis))
                 .thenCompose(v -> Fx.pulses(2))
+                .thenCompose(v -> {
+                    // a page may have requested the focus while getting ready
+                    view.releaseFocus();
+                    return Fx.pulses(2);
+                })
                 .thenComposeAsync(v -> {
                     WritableImage image = view.pageFrame().snapshot(parameters(), null);
                     String file = page.id() + ".png";
