@@ -1,8 +1,10 @@
 package io.quarkiverse.fx.showcase.pages.text;
 
 import java.text.Bidi;
+import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletionStage;
 
 import jakarta.inject.Singleton;
@@ -45,7 +47,9 @@ public class TextInternationalPage implements FeaturePage {
     static final String KOREAN = "안녕하세요 세계";
     static final String HINDI = "नमस्ते दुनिया";
     static final String THAI = "สวัสดีชาวโลก";
-    static final String EMOJI = "😀🎉🚀❤️👍🏽🇯🇵👨‍👩‍👧";
+    static final String EMOJI = "😀🎉🚀❤️👍🌍🍕";
+    /** Skin tone modifier, flag and ZWJ family sequences : JavaFX draws their components side by side. */
+    static final String EMOJI_SEQUENCES = "👍🏽 🇯🇵 👨‍👩‍👧";
     static final String MIXED = "النص العربي يحتوي على JavaFX 25 و Quarkus مع الرقم 2024.";
 
     @Override
@@ -85,7 +89,7 @@ public class TextInternationalPage implements FeaturePage {
         HBox cjk = new HBox(8,
                 Ui.grow(scriptTile("Hebrew, Arial Hebrew", "Arial Hebrew", 20, HEBREW)),
                 Ui.grow(scriptTile("Chinese, Hiragino Sans GB", "Hiragino Sans GB", 20, CHINESE)),
-                Ui.grow(scriptTile("Chinese, Font.font(\"PingFang SC\")", "PingFang SC", 20, CHINESE)),
+                Ui.grow(scriptTile("Font.font(\"PingFang SC\"): wrong glyphs", "PingFang SC", 20, CHINESE)),
                 Ui.grow(scriptTile("Japanese, Hiragino Sans", "Hiragino Sans", 20, JAPANESE)),
                 Ui.grow(scriptTile("Korean, Apple SD Gothic Neo", "Apple SD Gothic Neo", 20, KOREAN)));
 
@@ -93,8 +97,8 @@ public class TextInternationalPage implements FeaturePage {
         HBox complex = new HBox(8,
                 Ui.grow(scriptTile("Hindi, Kohinoor Devanagari", "Kohinoor Devanagari", 20, HINDI)),
                 Ui.grow(scriptTile("Thai, Thonburi", "Thonburi", 20, THAI)),
-                Ui.grow(scriptTile("Apple Color Emoji font", "Apple Color Emoji", 20, EMOJI)),
-                Ui.grow(scriptTile("Emoji, System font (fallback)", "System", 20, EMOJI)),
+                Ui.grow(scriptTile("Apple Color Emoji; sequences", "Apple Color Emoji", 20, EMOJI, EMOJI_SEQUENCES)),
+                Ui.grow(scriptTile("Emoji, System font (fallback)", "System", 20, EMOJI, EMOJI_SEQUENCES)),
                 Ui.grow(scriptTile("CJK, System font (fallback)", "System", 20, "中文 日本語 한국어")));
 
         // Row 4 : bidirectional text flows
@@ -133,7 +137,8 @@ public class TextInternationalPage implements FeaturePage {
         for (String family : List.of("Geeza Pro", "Arial Hebrew", "Hiragino Sans GB", "PingFang SC", "Hiragino Sans",
                 "Apple SD Gothic Neo",
                 "Kohinoor Devanagari", "Thonburi", "Apple Color Emoji")) {
-            families.add(family + "→" + Font.font(family, 20).getFamily());
+            String resolved = Font.font(family, 20).getFamily();
+            families.add(resolved.equals(family) ? family + " =" : family + "→" + resolved);
         }
         checks.add(Check.info("Font.font(family).getFamily()", String.join(", ", families)));
         checks.add(Checks.run("text widths (ar kufi/ar geeza/he/zh/zh pf/ja/ko)",
@@ -141,9 +146,9 @@ public class TextInternationalPage implements FeaturePage {
                         width("Arial Hebrew", HEBREW), width("Hiragino Sans GB", CHINESE), width("PingFang SC", CHINESE),
                         width("Hiragino Sans", JAPANESE),
                         width("Apple SD Gothic Neo", KOREAN))));
-        checks.add(Checks.run("text widths (hi/th/emoji/emoji fallback)",
+        checks.add(Checks.run("text widths (hi/th/emoji/fallback/sequences)",
                 () -> String.join(" / ", width("Kohinoor Devanagari", HINDI), width("Thonburi", THAI),
-                        width("Apple Color Emoji", EMOJI), width("System", EMOJI))));
+                        width("Apple Color Emoji", EMOJI), width("System", EMOJI), width("System", EMOJI_SEQUENCES))));
         checks.add(Checks.run("Arabic Text hitTest(5, 10) / caretShape(0)", () -> {
             Text t = new Text(ARABIC);
             t.setFont(Font.font("Geeza Pro", 24));
@@ -161,6 +166,11 @@ public class TextInternationalPage implements FeaturePage {
             return sb.toString();
         }));
         checks.add(Check.info("TextField effective orientation", field.getEffectiveNodeOrientation()));
+        // JavaFX wraps text with BreakIterator.getLineInstance and cuts WORD_ELLIPSIS at word boundaries : the rule
+        // data are JDK resources that a native image must include
+        checks.add(Checks.run("BreakIterator word / line boundaries", () -> boundaries(BreakIterator.getWordInstance(
+                Locale.ROOT), BREAK_SAMPLE) + " / " + boundaries(BreakIterator.getLineInstance(Locale.ROOT),
+                        BREAK_SAMPLE)));
 
         VBox checksHolder = new VBox(Checks.view("International text", checks));
         VBox root = new VBox(8, arabic, cjk, complex, bidi, controlsTile, checksHolder);
@@ -217,6 +227,17 @@ public class TextInternationalPage implements FeaturePage {
         flow.setMaxWidth(480);
         flow.setStyle("-fx-background-color: #fff8e1;");
         return flow;
+    }
+
+    static final String BREAK_SAMPLE = "JavaFX 25: مرحبا بالعالم, 你好。 Hello-world";
+
+    private static String boundaries(BreakIterator iterator, String text) {
+        iterator.setText(text);
+        List<String> result = new ArrayList<>();
+        for (int b = iterator.first(); b != BreakIterator.DONE; b = iterator.next()) {
+            result.add(String.valueOf(b));
+        }
+        return String.join(",", result);
     }
 
     private static String width(String family, String text) {
