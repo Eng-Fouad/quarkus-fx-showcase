@@ -17,10 +17,17 @@ import javax.imageio.ImageIO;
  * <p>
  * usage: java tools/Compare.java comparison/jvm comparison/native comparison/diff [tolerance]
  * <p>
- * Writes summary.txt, summary.json, index.html and diff images into the output directory. Exit code 0 when both
- * runs match and none reported errors, 1 otherwise.
+ * Writes summary.txt, index.html and diff images into the output directory. Exit code 0 when both runs match and
+ * none reported errors, 1 otherwise.
+ * <p>
+ * Images whose differences are at most {@link #NOISE_MAX_DELTA} per channel on less than {@link #NOISE_MAX_RATIO} of
+ * the pixels are reported as NOISE : the same variations exist between two JVM runs using different execution modes
+ * (e.g. JIT vs -Xint), they come from floating point evaluation, not from the native image.
  */
 public class Compare {
+
+    static final int NOISE_MAX_DELTA = 2;
+    static final double NOISE_MAX_RATIO = 0.005;
 
     record ImageResult(String file, String status, long differing, long total, int maxDelta, String diffFile) {
     }
@@ -64,11 +71,11 @@ public class Compare {
         lines.add("");
         lines.add("== Images (tolerance " + tolerance + ")");
         for (ImageResult r : images) {
-            if (!r.status.equals("IDENTICAL")) {
+            if (!r.status.equals("IDENTICAL") && !r.status.equals("NOISE")) {
                 mismatches++;
             }
             lines.add(String.format("%-10s %-60s %s", r.status, r.file,
-                    r.status.equals("DIFFERENT") ? String.format("%d px (%.3f%%), max delta %d", r.differing, 100.0 * r.differing / r.total, r.maxDelta) : ""));
+                    r.total > 0 && r.differing > 0 ? String.format("%d px (%.3f%%), max delta %d", r.differing, 100.0 * r.differing / r.total, r.maxDelta) : ""));
         }
 
         lines.add("");
@@ -121,9 +128,10 @@ public class Compare {
         }
 
         long identical = images.stream().filter(r -> r.status.equals("IDENTICAL")).count();
+        long noise = images.stream().filter(r -> r.status.equals("NOISE")).count();
         String verdict = mismatches == 0 && errorPages == 0 ? "MATCH" : "MISMATCH";
-        lines.add(0, String.format("%s : %d/%d images identical, %d mismatches, %d pages with errors", verdict, identical,
-                images.size(), mismatches, errorPages));
+        lines.add(0, String.format("%s : %d/%d images identical, %d floating point noise, %d mismatches, %d pages with errors",
+                verdict, identical, images.size(), noise, mismatches, errorPages));
         Files.write(out.resolve("summary.txt"), lines, StandardCharsets.UTF_8);
         writeHtml(out, a, b, reportA, reportB, images, pageNotes, lines.getFirst());
         lines.forEach(System.out::println);
@@ -182,7 +190,8 @@ public class Compare {
         }
         String diffFile = "diff-" + name;
         ImageIO.write(diff, "png", out.resolve(diffFile).toFile());
-        return new ImageResult(name, "DIFFERENT", differing, (long) w * h, maxDelta, diffFile);
+        boolean noise = maxDelta <= NOISE_MAX_DELTA && differing < NOISE_MAX_RATIO * w * h;
+        return new ImageResult(name, noise ? "NOISE" : "DIFFERENT", differing, (long) w * h, maxDelta, diffFile);
     }
 
     @SuppressWarnings("unchecked")
@@ -225,7 +234,7 @@ public class Compare {
         StringBuilder html = new StringBuilder("""
                 <!doctype html><meta charset="utf-8"><title>JVM vs native</title>
                 <style>body{font:14px -apple-system,sans-serif;margin:20px}table{border-collapse:collapse}
-                td,th{border:1px solid #ccc;padding:3px 8px;text-align:left}.IDENTICAL{color:#1b7f3a}.DIFFERENT,.SIZE,.ONLY_A,.ONLY_B{color:#c62828;font-weight:bold}
+                td,th{border:1px solid #ccc;padding:3px 8px;text-align:left}.IDENTICAL{color:#1b7f3a}.NOISE{color:#8a6d00}.DIFFERENT,.SIZE,.ONLY_A,.ONLY_B{color:#c62828;font-weight:bold}
                 .row{display:flex;gap:8px;margin:8px 0 24px}.row figure{margin:0;flex:1}.row img{width:100%;border:1px solid #ccc}
                 figcaption{font-size:12px;color:#555}pre{background:#f6f6f6;padding:8px;white-space:pre-wrap}</style>
                 """);
