@@ -13,6 +13,7 @@ import java.util.function.BooleanSupplier;
 
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms;
 import javafx.animation.AnimationTimer;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBase;
@@ -92,6 +93,43 @@ final class MediaSupport {
         label.getStyleClass().add("media-caption");
         fixHeight(label, 16);
         return label;
+    }
+
+    /**
+     * A label showing times ({@code media-time} style class) in the monospaced font of the platform ("Menlo" on
+     * macOS) : JavaFX CSS {@code -fx-font-family} takes a single family, so it is set from code.
+     */
+    static Label timeLabel(Label label) {
+        label.getStyleClass().add("media-time");
+        label.setStyle("-fx-font-family: \"" + Platforms.Families.mono() + "\";");
+        return label;
+    }
+
+    /**
+     * The codec decoded by the operating system for a media file (H.264 video, AAC audio), or {@code null} when
+     * JavaFX decodes the file itself (WAV, AIFF).
+     */
+    static String systemCodec(String path) {
+        return path.endsWith(".mp4") ? "H.264" : path.endsWith(".m4a") ? "AAC" : null;
+    }
+
+    /**
+     * Whether H.264 / AAC decoding depends on an optional component of the operating system, whose absence is not a
+     * malfunction of the application : on Linux, JavaFX decodes them with the system ffmpeg libraries (libavcodec)
+     * when they are installed; on Windows, with the decoders of Media Foundation, missing from the N editions and from
+     * Windows Server without the Media Foundation feature. On macOS, AVFoundation always decodes them.
+     */
+    static boolean systemCodecOptional() {
+        return !Platforms.isMac();
+    }
+
+    /**
+     * Informational description of a player that could not decode {@code codec} on this system.
+     */
+    static String codecUnavailable(String codec, Object error) {
+        return codec + " decoding not available on this system (needs "
+                + Platforms.pick("AVFoundation", "Media Foundation", "the ffmpeg libraries, libavcodec") + "): "
+                + error;
     }
 
     static <T extends javafx.scene.layout.Region> T fixHeight(T region, double height) {
