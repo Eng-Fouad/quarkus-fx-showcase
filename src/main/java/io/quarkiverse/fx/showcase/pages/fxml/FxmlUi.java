@@ -10,6 +10,7 @@ import java.util.ResourceBundle;
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.layout.GridPane;
@@ -38,6 +39,21 @@ final class FxmlUi {
         label.getStyleClass().add("demo-note");
         label.setWrapText(true);
         label.setMinHeight(Region.USE_PREF_SIZE);
+        return label;
+    }
+
+    /** Lazily computed (not in a static initializer : font APIs must not run at native image build time). */
+    private static String monoStyle;
+
+    /**
+     * Sets the monospaced family of the operating system ("Menlo" on macOS) : -fx-font-family takes a single family, so
+     * it is not in pages.css (the .event-line and .probe-value rules keep the size and color).
+     */
+    static <T extends Label> T mono(T label) {
+        if (monoStyle == null) {
+            monoStyle = "-fx-font-family: \"" + Platforms.Families.mono() + "\";";
+        }
+        label.setStyle(monoStyle);
         return label;
     }
 

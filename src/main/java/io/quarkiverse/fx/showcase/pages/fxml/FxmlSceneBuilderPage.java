@@ -274,6 +274,9 @@ public class FxmlSceneBuilderPage implements FeaturePage {
 
         Label value = new Label(check.value());
         value.getStyleClass().add(ok ? "probe-value" : "probe-error");
+        if (ok) {
+            FxmlUi.mono(value);
+        }
         value.setWrapText(true);
         value.setMaxWidth(TILE_CONTENT_WIDTH);
         value.setMinHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
@@ -296,6 +299,9 @@ public class FxmlSceneBuilderPage implements FeaturePage {
                         () -> probe.late().apply(ns));
                 Label line = new Label((Boolean.TRUE.equals(lateCheck.ok()) ? "" : "✘ ") + lateCheck.value());
                 line.getStyleClass().add(Boolean.TRUE.equals(lateCheck.ok()) ? "probe-value" : "probe-error");
+                if (Boolean.TRUE.equals(lateCheck.ok())) {
+                    FxmlUi.mono(line);
+                }
                 line.setWrapText(true);
                 line.setMaxWidth(TILE_CONTENT_WIDTH);
                 Checks.attach(line, List.of(lateCheck));

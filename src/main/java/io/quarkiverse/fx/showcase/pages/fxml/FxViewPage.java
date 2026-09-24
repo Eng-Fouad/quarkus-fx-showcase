@@ -259,6 +259,7 @@ public class FxViewPage implements FeaturePage {
     private static Label eventLine(String text) {
         Label line = new Label(text);
         line.getStyleClass().add("event-line");
+        FxmlUi.mono(line);
         line.setWrapText(true);
         line.setMinHeight(Region.USE_PREF_SIZE);
         return line;
