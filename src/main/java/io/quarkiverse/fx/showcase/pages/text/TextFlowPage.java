@@ -11,6 +11,7 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms.Families;
 import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.geometry.VPos;
@@ -76,18 +77,21 @@ public class TextFlowPage implements FeaturePage {
     @Override
     public Node build() {
         List<Check> checks = new ArrayList<>();
+        // "Georgia" and "Menlo" on macOS
+        String georgia = PageFonts.georgia();
+        String mono = Families.mono();
 
         // Row 1 : rich text flow | tabs
-        TextFlow rich = richFlow();
+        TextFlow rich = richFlow(georgia, mono);
         rich.setPrefWidth(560);
         rich.setMaxWidth(560);
         rich.setStyle("-fx-background-color: #fafafa;");
         VBox richTile = Ui.tile("TextFlow : mixed fonts, sizes, colors, decorations and embedded Button, ImageView, "
                 + "Hyperlink, shape", rich);
 
-        TextFlow tabs4 = tabFlow(4);
-        TextFlow tabs8 = tabFlow(8);
-        TextFlow stops = tabFlow(8);
+        TextFlow tabs4 = tabFlow(4, mono);
+        TextFlow tabs8 = tabFlow(8, mono);
+        TextFlow stops = tabFlow(8, mono);
         TabStopPolicy policy = new TabStopPolicy();
         policy.tabStops().addAll(new TabStop(90), new TabStop(170));
         policy.setDefaultInterval(60);
@@ -115,7 +119,7 @@ public class TextFlowPage implements FeaturePage {
         HBox spacings = new HBox(8);
         for (double spacing : new double[] { 0, 8 }) {
             TextFlow flow = new TextFlow(styled("lineSpacing " + (int) spacing + " in a flow that wraps on three lines.",
-                    Font.font("Georgia", 12), Color.BLACK));
+                    Font.font(georgia, 12), Color.BLACK));
             flow.setLineSpacing(spacing);
             flow.setPrefWidth(118);
             flow.setMaxWidth(118);
@@ -148,7 +152,7 @@ public class TextFlowPage implements FeaturePage {
                 () -> Ui.bounds(new Path(selectable.underlineShape(0, 9)).getLayoutBounds())));
 
         Text caretText = new Text("Carets & hits");
-        caretText.setFont(Font.font("Times New Roman", 28));
+        caretText.setFont(Font.font(Families.serif(), 28));
         caretText.setTextOrigin(VPos.TOP);
         Group caretGroup = new Group(caretText);
         for (int index : new int[] { 0, 3, 6, 9, 13 }) {
@@ -174,12 +178,12 @@ public class TextFlowPage implements FeaturePage {
                 true))));
 
         // Row 4 : geometry overlays, drawn once the flows are laid out
-        TextFlow rangeFlow = geometryFlow();
+        TextFlow rangeFlow = geometryFlow(georgia);
         Group rangeOverlay = new Group();
         Pane rangePane = new Pane(rangeOverlay, rangeFlow);
         VBox rangeTile = Ui.grow(Ui.tile("TextFlow.getRangeShape across children (blue), getUnderlineShape (red), "
                 + "getStrikeThroughShape (green)", rangePane));
-        TextFlow linesFlow = geometryFlow();
+        TextFlow linesFlow = geometryFlow(georgia);
         linesFlow.setLineSpacing(6);
         Group linesOverlay = new Group();
         Pane linesPane = new Pane(linesOverlay, linesFlow);
@@ -246,12 +250,12 @@ public class TextFlowPage implements FeaturePage {
         return (CompletionStage<?>) content.getProperties().get(READY);
     }
 
-    private static TextFlow richFlow() {
-        Text t1 = styled("TextFlow ", Font.font("Helvetica Neue", FontWeight.BOLD, 18), Color.web("#0d47a1"));
+    private static TextFlow richFlow(String georgia, String mono) {
+        Text t1 = styled("TextFlow ", Font.font(Families.sans(), FontWeight.BOLD, 18), Color.web("#0d47a1"));
         Text t2 = styled("mixes ", Font.font("System", FontPosture.ITALIC, 14), Color.web("#37474f"));
-        Text t3 = styled("fonts, ", Font.font("Georgia", 17), Color.web("#6a1b9a"));
+        Text t3 = styled("fonts, ", Font.font(georgia, 17), Color.web("#6a1b9a"));
         Text t4 = styled("sizes ", Font.font("System", 24), Color.web("#ef6c00"));
-        Text t5 = styled("and colors. ", Font.font("Menlo", 13), Color.web("#2e7d32"));
+        Text t5 = styled("and colors. ", Font.font(mono, 13), Color.web("#2e7d32"));
         Text t6 = styled("It embeds a ", Font.font("System", 14), Color.BLACK);
         Button button = new Button("Button");
         button.setFocusTraversable(false);
@@ -279,11 +283,11 @@ public class TextFlowPage implements FeaturePage {
         return flow;
     }
 
-    private static TextFlow geometryFlow() {
+    private static TextFlow geometryFlow(String georgia) {
         TextFlow flow = new TextFlow(
                 styled("Geometry ", Font.font("System", FontWeight.BOLD, 13), Color.web("#0d47a1")),
                 styled("of a flow made of several Text nodes: the range spans ", Font.font("System", 13), Color.BLACK),
-                styled("styled children", Font.font("Georgia", FontPosture.ITALIC, 14), Color.web("#6a1b9a")),
+                styled("styled children", Font.font(georgia, FontPosture.ITALIC, 14), Color.web("#6a1b9a")),
                 styled(", then an underline and a strike-through computed from the text layout.",
                         Font.font("System", 13), Color.BLACK));
         flow.setPrefWidth(480);
@@ -291,8 +295,8 @@ public class TextFlowPage implements FeaturePage {
         return flow;
     }
 
-    private static TextFlow tabFlow(int tabSize) {
-        Text text = styled("Item\tQty\tPrice\nApple\t3\t1.20\nWatermelon\t12\t10.50", Font.font("Menlo", 11),
+    private static TextFlow tabFlow(int tabSize, String mono) {
+        Text text = styled("Item\tQty\tPrice\nApple\t3\t1.20\nWatermelon\t12\t10.50", Font.font(mono, 11),
                 Color.BLACK);
         TextFlow flow = new TextFlow(text);
         flow.setTabSize(tabSize);

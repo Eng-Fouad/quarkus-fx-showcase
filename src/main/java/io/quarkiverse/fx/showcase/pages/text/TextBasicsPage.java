@@ -12,6 +12,7 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms.Families;
 import javafx.geometry.Pos;
 import javafx.geometry.VPos;
 import javafx.scene.Group;
@@ -46,7 +47,6 @@ import javafx.scene.text.TextBoundsType;
 @Singleton
 public class TextBasicsPage implements FeaturePage {
 
-    static final String[] FAMILIES = { "System", "Helvetica Neue", "Avenir Next" };
     static final String[] WEIGHT_NAMES = { "Thin", "XLight", "Light", "Normal", "Medium", "SemiBold", "Bold", "XBold",
             "Black" };
     static final String PARAGRAPH = "JavaFX lays out this paragraph inside a wrapping width of 228 pixels, "
@@ -76,13 +76,19 @@ public class TextBasicsPage implements FeaturePage {
     @Override
     public Node build() {
         List<Check> checks = new ArrayList<>();
+        // "Helvetica Neue", "Avenir Next", "Georgia", "Times New Roman" and "Menlo" on macOS
+        String sans = Families.sans();
+        String georgia = PageFonts.georgia();
+        String serif = Families.serif();
+        String mono = Families.mono();
+        String[] families = { "System", sans, PageFonts.avenir() };
 
         // Row 1 : weights and sizes
         GridPane weights = new GridPane();
         weights.setHgap(10);
         weights.setVgap(2);
-        for (int row = 0; row < FAMILIES.length; row++) {
-            String family = FAMILIES[row];
+        for (int row = 0; row < families.length; row++) {
+            String family = families[row];
             Text name = new Text(family);
             name.setFont(Font.font("System", FontWeight.BOLD, 11));
             name.setFill(Color.web("#37474f"));
@@ -113,19 +119,19 @@ public class TextBasicsPage implements FeaturePage {
         // Row 2 : posture & decorations, stroke & paint, smoothing, CSS
         Text regular = text("Regular", Font.font("System", FontPosture.REGULAR, 14));
         Text italic = text("Italic", Font.font("System", FontPosture.ITALIC, 14));
-        Text boldItalic = text("Bold Italic", Font.font("Helvetica Neue", FontWeight.BOLD, FontPosture.ITALIC, 14));
+        Text boldItalic = text("Bold Italic", Font.font(sans, FontWeight.BOLD, FontPosture.ITALIC, 14));
         Text underline = text("Underline", Font.font("System", 14));
         underline.setUnderline(true);
         Text strike = text("Strikethrough", Font.font("System", 14));
         strike.setStrikethrough(true);
-        Text both = text("Both, in red", Font.font("Georgia", FontPosture.ITALIC, 14));
+        Text both = text("Both, in red", Font.font(georgia, FontPosture.ITALIC, 14));
         both.setUnderline(true);
         both.setStrikethrough(true);
         both.setFill(Color.web("#c62828"));
         VBox decorTile = Ui.tile("FontPosture, underline, strikethrough",
                 new HBox(8, regular, italic, boldItalic), new HBox(8, underline, strike), both);
 
-        Font big = Font.font("Helvetica Neue", FontWeight.BOLD, 30);
+        Font big = Font.font(sans, FontWeight.BOLD, 30);
         Text stroked = text("Stroke", big);
         stroked.setFill(Color.WHITE);
         stroked.setStroke(Color.web("#1565c0"));
@@ -163,10 +169,11 @@ public class TextBasicsPage implements FeaturePage {
         graySmall.setFontSmoothingType(FontSmoothingType.GRAY);
         VBox smoothingTile = Ui.tile("FontSmoothingType", lcd, gray, lcdSmall, graySmall);
 
+        String cssStyle1 = css1(serif);
         Text css1 = new Text("CSS: -fx-font");
-        css1.setStyle(CSS_1);
-        Text css2 = new Text("CSS: Menlo, stroke");
-        css2.setStyle(CSS_2);
+        css1.setStyle(cssStyle1);
+        Text css2 = new Text("CSS: " + mono + ", stroke");
+        css2.setStyle(css2(mono));
         VBox cssTile = Ui.grow(Ui.tile("Text styled with inline CSS", css1, css2));
         HBox row2 = new HBox(8, decorTile, paintTile, smoothingTile, cssTile);
 
@@ -204,7 +211,7 @@ public class TextBasicsPage implements FeaturePage {
         List<String> boundsValues = new ArrayList<>();
         for (TextBoundsType type : TextBoundsType.values()) {
             Text t = new Text("Égypte");
-            t.setFont(Font.font("Times New Roman", 30));
+            t.setFont(Font.font(serif, 30));
             t.setBoundsType(type);
             t.setTextOrigin(VPos.TOP);
             Rectangle r = new Rectangle();
@@ -228,7 +235,7 @@ public class TextBasicsPage implements FeaturePage {
         metrics.setFont(Font.font("System", 20));
         checks.add(Check.info("'Hello JavaFX' System 20 bounds / baseline",
                 Ui.size(metrics.getLayoutBounds()) + " / " + Ui.num(metrics.getBaselineOffset())));
-        checks.add(cssCheck());
+        checks.add(cssCheck(cssStyle1));
 
         // Row 5 : label overrun styles
         HBox overruns = new HBox(6);
@@ -277,14 +284,22 @@ public class TextBasicsPage implements FeaturePage {
     }
 
     private static final String READY = "text-basics.ready";
-    private static final String CSS_1 = "-fx-font: italic bold 18px 'Times New Roman'; -fx-fill: #6a1b9a; -fx-underline: true;";
-    private static final String CSS_2 = "-fx-font-family: 'Menlo'; -fx-font-size: 15px; -fx-fill: #fff59d; "
-            + "-fx-stroke: #e65100; -fx-stroke-width: 0.6;";
 
-    private static Check cssCheck() {
+    /** The -fx-font shorthand takes a single family ("Times New Roman" on macOS). */
+    private static String css1(String serif) {
+        return "-fx-font: italic bold 18px '" + serif + "'; -fx-fill: #6a1b9a; -fx-underline: true;";
+    }
+
+    /** "Menlo" on macOS. */
+    private static String css2(String mono) {
+        return PageFonts.cssFamily(mono) + " -fx-font-size: 15px; -fx-fill: #fff59d; "
+                + "-fx-stroke: #e65100; -fx-stroke-width: 0.6;";
+    }
+
+    private static Check cssCheck(String style) {
         return Checks.run("inline CSS -fx-font resolved", () -> {
             Text t = new Text("css");
-            t.setStyle(CSS_1);
+            t.setStyle(style);
             new Scene(new Group(t));
             t.applyCss();
             return t.getFont().getName() + " " + Ui.num(t.getFont().getSize()) + ", fill " + t.getFill() + ", underline "
