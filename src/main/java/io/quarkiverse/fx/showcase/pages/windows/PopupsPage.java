@@ -80,7 +80,7 @@ public class PopupsPage implements FeaturePage {
      */
     record Controls(Button popupButton, ComboBox<String> comboBox, DatePicker datePicker, ColorPicker colorPicker,
             ChoiceBox<String> choiceBox, MenuButton menuButton, Label contextTarget, ContextMenu contextMenu,
-            Label tooltipTarget) {
+            Label tooltipTarget, MenuBar menuBar) {
     }
 
     @Override
@@ -105,8 +105,7 @@ public class PopupsPage implements FeaturePage {
 
     @Override
     public Node build() {
-        VBox root = WindowSupport.styled(new VBox(12));
-        root.getStyleClass().add("windows-page");
+        VBox root = WindowSupport.page(12);
 
         ComboBox<String> comboBox = new ComboBox<>(FXCollections.observableArrayList("Mercury", "Venus", "Earth", "Mars",
                 "Jupiter", "Saturn", "Uranus", "Neptune"));
@@ -129,12 +128,12 @@ public class PopupsPage implements FeaturePage {
         menuButton.getItems().setAll(menuItems());
 
         Label contextTarget = new Label("Right-click: ContextMenu");
-        contextTarget.getStyleClass().add("popup-demo-target");
+        contextTarget.getStyleClass().addAll("popup-demo-target", "css-icon");
         ContextMenu contextMenu = contextMenu();
         contextTarget.setContextMenu(contextMenu);
 
         Label tooltipTarget = new Label("Hover: Tooltip");
-        tooltipTarget.getStyleClass().add("popup-demo-target");
+        tooltipTarget.getStyleClass().addAll("popup-demo-target", "css-icon");
         tooltipTarget.setTooltip(tooltip());
 
         Button popupButton = new Button("Show Popup");
@@ -183,7 +182,7 @@ public class PopupsPage implements FeaturePage {
         }
         root.getProperties().put(GALLERY_KEY, views);
         root.getProperties().put(CONTROLS_KEY, new Controls(popupButton, comboBox, datePicker, colorPicker, choiceBox,
-                menuButton, contextTarget, contextMenu, tooltipTarget));
+                menuButton, contextTarget, contextMenu, tooltipTarget, menuBar));
 
         List<Check> checks = new ArrayList<>();
         checks.add(Checks.expect("new MenuBar().setUseSystemMenuBar(true)", "useSystemMenuBar=true", () -> {
@@ -347,6 +346,8 @@ public class PopupsPage implements FeaturePage {
 
         Popup popup = popup(false);
         Tooltip tooltip = tooltip();
+        // Tooltip durations are styleable : parsed by the Duration converter, applied once the tooltip is shown
+        tooltip.setStyle("-fx-show-delay: 250ms; -fx-show-duration: 7s; -fx-hide-delay: 0.05s;");
         List<Target> targets = List.of(
                 new Target("popup", "Popup", () -> {
                     Bounds b = screenBounds(c.popupButton());
@@ -369,7 +370,7 @@ public class PopupsPage implements FeaturePage {
                                 + text(w, ".hyperlink"),
                         c.colorPicker()::hide),
                 new Target("choice-box", "ChoiceBox popup", c.choiceBox()::show, ContextMenu.class::isInstance,
-                        w -> ((ContextMenu) w).getItems().size() + " items, "
+                        w -> anchor(w, c.choiceBox()) + ", " + ((ContextMenu) w).getItems().size() + " items, "
                                 + ((ContextMenu) w).getItems().stream()
                                         .filter(i -> i instanceof RadioMenuItem r && r.isSelected())
                                         .map(MenuItem::getText).findFirst().orElse("none")
@@ -401,7 +402,14 @@ public class PopupsPage implements FeaturePage {
             long showing = shown.stream().filter(Window::isShowing).count();
             live.checks.add(Check.of("All popups hidden", showing == 0 && shown.size() == targets.size(),
                     showing + " of " + shown.size() + " captured popups still showing"));
+            live.checks.add(Checks.expect("Tooltip durations from CSS", "showDelay 250ms, showDuration 7000ms, "
+                    + "hideDelay 50ms", () -> "showDelay " + millis(tooltip.getShowDelay()) + ", showDuration "
+                            + millis(tooltip.getShowDuration()) + ", hideDelay " + millis(tooltip.getHideDelay())));
             live.checks.add(mainMenuBarCheck(main));
+            live.checks.add(Checks.run("MenuBar in the scene", () -> "useSystemMenuBar=" + c.menuBar().isUseSystemMenuBar()
+                    + ", " + c.menuBar().lookupAll(".menu").stream().filter(Labeled.class::isInstance)
+                            .map(n -> ((Labeled) n).getText()).toList() + " menu buttons"));
+            live.checks.add(cssIconCheck(c.tooltipTarget()));
             live.closeAll();
             if (mainFocused && !main.isFocused()) {
                 main.requestFocus();
@@ -420,6 +428,7 @@ public class PopupsPage implements FeaturePage {
             target.hide().run();
             throw new IllegalStateException("no popup window appeared");
         }
+        WindowSupport.shield(window);
         shown.add(window);
         live.opened.add(window);
         boolean showing = window.isShowing();
@@ -451,6 +460,26 @@ public class PopupsPage implements FeaturePage {
         });
     }
 
+    /**
+     * The -fx-graphic of .css-icon (windows.css) : an url relative to the stylesheet, resolved against its URL.
+     */
+    private static Check cssIconCheck(Labeled labeled) {
+        return Checks.run("CSS url(../images/icon-16.png)", () -> {
+            if (!(labeled.getGraphic() instanceof ImageView view) || view.getImage() == null) {
+                throw new IllegalStateException("no image graphic: " + labeled.getGraphic());
+            }
+            Image image = view.getImage();
+            String url = image.getUrl();
+            int index = url == null ? -1 : url.lastIndexOf("/showcase/");
+            if (index < 0) {
+                throw new IllegalStateException("url outside /showcase/");
+            }
+            // the scheme and the location of the application differ between runs, not the resource path
+            return url.substring(index) + " " + WindowSupport.size(image.getWidth(), image.getHeight())
+                    + (image.isError() ? " ERROR " + Checks.describe(image.getException()) : "");
+        });
+    }
+
     private static void showGallery(Node content, WindowSupport.Live live) {
         if (content.getProperties().get(GALLERY_KEY) instanceof Map<?, ?> views) {
             live.images.forEach((key, image) -> {
@@ -468,13 +497,31 @@ public class PopupsPage implements FeaturePage {
     }
 
     /**
-     * Position of the popup anchor relative to the bottom left corner of its owner node, and window size.
+     * Position of the popup anchor relative to the bottom left corner of its owner node, and size of the popup content.
+     * <p>
+     * Not the window size : it is updated when the native window reports its new frame, rounded to whole points on
+     * macOS (a 220.5 high content gives a 221 high window, some time after show()), so it depends on timing.
      */
     private static String anchor(Window window, Node owner) {
         Bounds b = screenBounds(owner);
         PopupWindow popup = (PopupWindow) window;
+        Bounds content = content(window).getLayoutBounds();
         return "anchor " + signed(popup.getAnchorX() - b.getMinX()) + "," + signed(popup.getAnchorY() - b.getMaxY())
-                + " " + WindowSupport.size(window.getWidth(), window.getHeight());
+                + " " + WindowSupport.size(content.getWidth(), content.getHeight());
+    }
+
+    /**
+     * The content node of a popup window : the skin node of a PopupControl (ListView, DatePickerContent,
+     * ContextMenuContent...), the first content node of a Popup.
+     */
+    private static Node content(Window window) {
+        if (window instanceof PopupControl control && control.getSkin() != null && control.getSkin().getNode() != null) {
+            return control.getSkin().getNode();
+        }
+        if (window instanceof Popup popup && !popup.getContent().isEmpty()) {
+            return popup.getContent().get(0);
+        }
+        return window.getScene().getRoot();
     }
 
     private static String signed(double value) {

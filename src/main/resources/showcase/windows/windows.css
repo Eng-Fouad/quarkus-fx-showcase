@@ -176,12 +176,10 @@
     -fx-font-size: 9px;
 }
 
-.checkerboard {
-    -fx-background-image: url("../images/texture.png");
-    -fx-background-size: 64 64;
-    -fx-background-repeat: repeat;
-    -fx-background-radius: 6;
-    -fx-padding: 6;
+/* an image referenced relatively to this stylesheet : a jar or file URL in JVM mode, a resource: URL in a native image */
+.css-icon {
+    -fx-graphic: url("../images/icon-16.png");
+    -fx-graphic-text-gap: 6;
 }
 
 /* ------------------------------------------------------------------------------------------------------ popups */
