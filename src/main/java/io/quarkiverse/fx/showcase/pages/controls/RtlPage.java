@@ -82,6 +82,11 @@ public class RtlPage implements FeaturePage {
 
     private static final String ARABIC_WORD = "مرحبا";
 
+    /**
+     * Maximum line length (in chars) of the notes when right-to-left text cannot be wrapped, see {@link #rtlWrapError()}.
+     */
+    private static final int HARD_WRAP_CHARS = 48;
+
     @Override
     public String id() {
         return "controls-rtl";
@@ -110,8 +115,9 @@ public class RtlPage implements FeaturePage {
         Font kufi = ControlsUi.droidKufi();
         early.add(ControlsUi.droidKufiCheck("Font.loadFont(stream) Droid Kufi"));
 
-        VBox ltr = form(ENGLISH, NodeOrientation.LEFT_TO_RIGHT, null);
-        VBox rtl = form(ARABIC, NodeOrientation.RIGHT_TO_LEFT, kufi);
+        Throwable rtlWrapError = rtlWrapError();
+        VBox ltr = form(ENGLISH, NodeOrientation.LEFT_TO_RIGHT, null, true);
+        VBox rtl = form(ARABIC, NodeOrientation.RIGHT_TO_LEFT, kufi, rtlWrapError == null);
         ltr.setId("form-ltr");
         rtl.setId("form-rtl");
         HBox.setHgrow(ltr, Priority.ALWAYS);
@@ -136,6 +142,10 @@ public class RtlPage implements FeaturePage {
                     + text.hitTest(new Point2D(width - 1, y)).getCharIndex() + ", width "
                     + String.format(Locale.ROOT, "%.1f", width);
         }));
+        if (rtlWrapError != null) {
+            early.add(Check.info("TextArea wrapping of right-to-left text",
+                    "disabled, explicit line breaks instead (JavaFX bug: " + Checks.describe(rtlWrapError) + ")"));
+        }
 
         VBox root = ControlsUi.page(10, forms, checks);
         root.setPrefWidth(1028);
@@ -156,6 +166,49 @@ public class RtlPage implements FeaturePage {
                     () -> scrollBarOnRight(content, "#form-ltr") + " / " + scrollBarOnRight(content, "#form-rtl")));
             holder.show("Checks", late);
         }, Fx.FX_THREAD);
+    }
+
+    /**
+     * The error thrown when laying out a wrapped right-to-left text, or {@code null} when it can be wrapped.
+     * <p>
+     * JavaFX 25 bug on Linux ({@code PangoGlyphLayout}) : when {@code PrismTextLayout} wraps a right-to-left run, it
+     * splits the run and shapes its first part again, but {@code PangoGlyphLayout} shapes the UTF-8 copy of the text it
+     * cached for that {@code TextRun} before the split (the whole run). The char offsets of the glyphs are then shifted
+     * by the length of the part moved to the next line, and {@code PrismTextLayout.computeTrailingSpaceWidth} throws an
+     * {@code ArrayIndexOutOfBoundsException} (negative index) when the run starts at the beginning of the text, like
+     * any wrapped paragraph of a TextArea (other wrapped complex runs do not throw, but draw the whole run on their
+     * first line). The exception is thrown during the layout pass, which leaves the page half laid out. macOS (CoreText)
+     * and Windows (DirectWrite) are not affected : they do not cache the text.
+     */
+    static Throwable rtlWrapError() {
+        try {
+            Text probe = new Text(ARABIC_WORD + " " + ARABIC_WORD);
+            // narrower than the text : the right-to-left run is split
+            probe.setWrappingWidth(20);
+            probe.getLayoutBounds();
+            return null;
+        } catch (RuntimeException e) {
+            return e;
+        }
+    }
+
+    /**
+     * Breaks {@code text} into lines of at most {@code maxChars} chars, at spaces.
+     */
+    static String hardWrap(String text, int maxChars) {
+        StringBuilder lines = new StringBuilder();
+        StringBuilder line = new StringBuilder();
+        for (String word : text.split(" ")) {
+            if (!line.isEmpty() && line.length() + 1 + word.length() > maxChars) {
+                lines.append(line).append('\n');
+                line.setLength(0);
+            }
+            if (!line.isEmpty()) {
+                line.append(' ');
+            }
+            line.append(word);
+        }
+        return lines.append(line).toString();
     }
 
     private static boolean labelLeftOfField(Node content, String form) {
@@ -180,7 +233,10 @@ public class RtlPage implements FeaturePage {
         return node.localToScene(node.getLayoutBounds()).getMinX();
     }
 
-    private static VBox form(Texts t, NodeOrientation orientation, Font font) {
+    /**
+     * @param wrapNotes whether the notes TextArea wraps its text, or shows it with explicit line breaks
+     */
+    private static VBox form(Texts t, NodeOrientation orientation, Font font, boolean wrapNotes) {
         Label title = new Label(t.title());
         title.getStyleClass().add("form-title");
 
@@ -236,8 +292,9 @@ public class RtlPage implements FeaturePage {
 
         javafx.scene.control.Spinner<Integer> quantity = new javafx.scene.control.Spinner<>(1, 99, 12);
         quantity.setPrefWidth(110);
-        javafx.scene.control.TextArea notes = new javafx.scene.control.TextArea(t.notesValue());
-        notes.setWrapText(true);
+        javafx.scene.control.TextArea notes = new javafx.scene.control.TextArea(
+                wrapNotes ? t.notesValue() : hardWrap(t.notesValue(), HARD_WRAP_CHARS));
+        notes.setWrapText(wrapNotes);
         notes.setPrefRowCount(3);
 
         Label mixed = new Label(t.mixed());
