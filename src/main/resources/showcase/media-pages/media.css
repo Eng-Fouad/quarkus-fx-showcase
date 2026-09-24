@@ -41,8 +41,8 @@
     -fx-base: #2f855a;
 }
 
+/* the monospaced family of the platform is set from code (MediaSupport.timeLabel) */
 .media-time {
-    -fx-font-family: "Menlo", monospace;
     -fx-font-size: 12px;
     -fx-text-fill: #102a43;
 }

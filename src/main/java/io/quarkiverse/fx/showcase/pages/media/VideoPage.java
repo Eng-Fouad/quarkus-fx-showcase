@@ -13,6 +13,7 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms;
 import javafx.geometry.Bounds;
 import javafx.geometry.Pos;
 import javafx.geometry.Rectangle2D;
@@ -42,6 +43,9 @@ import javafx.util.Duration;
 /**
  * Video : MediaView of an H.264 clip paused at 1.5 s, several MediaViews sharing the same MediaPlayer (fit,
  * preserveRatio, viewport, effects, clip).
+ * <p>
+ * H.264 is decoded by the operating system : where that decoder is optional (see
+ * {@link MediaSupport#systemCodecOptional()}), its absence is reported as information, not as a failure.
  */
 @Singleton
 public class VideoPage implements FeaturePage {
@@ -71,6 +75,8 @@ public class VideoPage implements FeaturePage {
     }
 
     private static final class State {
+        /** URI of the temporary copy of the clip, once it exists. */
+        String source;
         Media media;
         MediaPlayer player;
         final MediaView main = new MediaView();
@@ -82,16 +88,25 @@ public class VideoPage implements FeaturePage {
         final VBox videoChecks = new VBox();
         final VBox viewChecks = new VBox();
         int readyEvents;
+        /** The player reached READY : a later error is not caused by a missing codec. */
+        boolean readyReached;
         String error;
         CompletionStage<?> ready;
+
+        /**
+         * Whether the player failed because H.264 is not available on this system (never on macOS).
+         */
+        boolean codecUnavailable() {
+            return error != null && source != null && !readyReached && MediaSupport.systemCodecOptional();
+        }
     }
 
     @Override
     public Node build() {
         State state = new State();
         try {
-            String uri = Fx.resourceToTempFile("/showcase/media/clip.mp4").toUri().toString();
-            state.media = new Media(uri);
+            state.source = Fx.resourceToTempFile("/showcase/media/clip.mp4").toUri().toString();
+            state.media = new Media(state.source);
             state.media.getMarkers().put("start", Duration.seconds(0.5));
             state.media.getMarkers().put("end", Duration.seconds(2.5));
             state.player = new MediaPlayer(state.media);
@@ -156,7 +171,9 @@ public class VideoPage implements FeaturePage {
             strip.getChildren().add(new VBox(4, MediaSupport.caption("seek(" + MediaSupport.seconds(time) + ")"), frame));
         }
         Label stripCaption = new Label("MediaView.snapshot() of the paused player after each seek, before the final "
-                + "seek(" + MediaSupport.seconds(SEEK) + ").\nOn macOS, AVFoundation seeks to whole seconds.");
+                + "seek(" + MediaSupport.seconds(SEEK) + ").\n" + (Platforms.isMac()
+                        ? "On macOS, AVFoundation seeks to whole seconds."
+                        : "The media engine may stop at the previous key frame (one per second)."));
         stripCaption.getStyleClass().add("media-caption");
         stripCaption.setWrapText(true);
         stripCaption.setPrefWidth(300);
@@ -169,6 +186,7 @@ public class VideoPage implements FeaturePage {
         root.getProperties().put(STATE, state);
 
         state.ready = state.player == null ? CompletableFuture.completedFuture(null).thenApply(v -> {
+            updateControls(state);
             showChecks(state);
             return null;
         }) : prepare(state);
@@ -182,6 +200,7 @@ public class VideoPage implements FeaturePage {
                     if (status != MediaPlayer.Status.READY) {
                         throw new IllegalStateException(status + ": " + MediaSupport.playerError(player));
                     }
+                    state.readyReached = true;
                     player.pause();
                     return MediaSupport.until(() -> player.getStatus() == MediaPlayer.Status.PAUSED, 10_000, "PAUSED");
                 });
@@ -207,7 +226,8 @@ public class VideoPage implements FeaturePage {
 
     /**
      * Seeks, waits until the current time left its previous value and is stable (the position reached can differ from
-     * the requested one : AVFoundation seeks to whole seconds on macOS), then until the main MediaView renders the
+     * the requested one : AVFoundation seeks to whole seconds on macOS, other engines may stop at the previous key
+     * frame, one per second in the clip), then until the main MediaView renders the
      * same frame twice, with the background color of the clip at that time (red, green then blue every second).
      */
     private static CompletionStage<WritableImage> seekAndSettle(State state, Duration time) {
@@ -307,7 +327,7 @@ public class VideoPage implements FeaturePage {
         Button pause = MediaSupport.button(MediaSupport.PAUSE, "||");
         Button stop = MediaSupport.button(MediaSupport.STOP, "[]");
         ToggleButton mute = MediaSupport.toggle(MediaSupport.MUTE, "M");
-        state.time.getStyleClass().add("media-time");
+        MediaSupport.timeLabel(state.time);
         state.position.setFocusTraversable(false);
         Region grow2 = new Region();
         HBox.setHgrow(grow2, Priority.ALWAYS);
@@ -348,11 +368,12 @@ public class VideoPage implements FeaturePage {
     private static void updateControls(State state) {
         MediaPlayer player = state.player;
         boolean ok = state.error == null && player != null;
+        boolean unavailable = state.codecUnavailable();
         state.statusLabel.getStyleClass().removeAll("waiting", "failed");
         if (!ok) {
-            state.statusLabel.getStyleClass().add("failed");
+            state.statusLabel.getStyleClass().add(unavailable ? "waiting" : "failed");
         }
-        state.statusLabel.setText(player == null ? "FAILED" : player.getStatus().name());
+        state.statusLabel.setText(unavailable ? "NO CODEC" : player == null ? "FAILED" : player.getStatus().name());
         if (ok) {
             Duration total = player.getMedia().getDuration();
             Duration current = player.getCurrentTime();
@@ -365,8 +386,12 @@ public class VideoPage implements FeaturePage {
     private static void showChecks(State state) {
         MediaPlayer player = state.player;
         List<Check> video = new ArrayList<>();
-        video.add(state.error == null ? Check.pass("ready, paused and seeked", "OK") : Check.fail("ready, paused and seeked", state.error));
-        if (player != null) {
+        boolean unavailable = state.codecUnavailable();
+        video.add(state.error == null ? Check.pass("ready, paused and seeked", "OK")
+                : unavailable ? Check.info("ready, paused and seeked", MediaSupport.codecUnavailable("H.264", state.error))
+                : Check.fail("ready, paused and seeked", state.error));
+        // without the codec, the state of the player is not checked
+        if (player != null && !unavailable) {
             Media media = state.media;
             video.add(Checks.expect("status, onReady handler calls", "PAUSED, 1",
                     () -> player.getStatus().name() + ", " + state.readyEvents));

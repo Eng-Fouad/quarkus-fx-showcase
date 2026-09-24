@@ -14,6 +14,7 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -36,6 +37,9 @@ import javafx.util.Duration;
 
 /**
  * Audio playback : Media / MediaPlayer for WAV, AIFF and M4A (never played, volume 0), AudioClip, AudioEqualizer.
+ * <p>
+ * AAC (M4A) is decoded by the operating system : where that decoder is optional (see
+ * {@link MediaSupport#systemCodecOptional()}), its absence is reported as information, not as a failure.
  */
 @Singleton
 public class AudioPage implements FeaturePage {
@@ -45,7 +49,10 @@ public class AudioPage implements FeaturePage {
             { "/showcase/media/hello.wav", "WAVE, PCM 16 bit, 22.05 kHz" },
             { "/showcase/media-pages/hello-pcm.aiff", "AIFF, PCM 16 bit big endian, 22.05 kHz" },
             { "/showcase/media/hello.m4a", "MPEG-4, AAC" } };
-    /** An AIFF-C file : not supported by JavaFX, the error must be reported through the error properties. */
+    /**
+     * An AIFF-C file : not supported by JavaFX on macOS, the error must be reported through the error properties. The
+     * GStreamer engine used on Windows and Linux may play it.
+     */
     private static final String AIFC = "/showcase/media/hello.aiff";
     /**
      * Played from their classpath URL, without temporary file : jar: URLs in JVM mode, resource: URLs in a native
@@ -79,6 +86,10 @@ public class AudioPage implements FeaturePage {
         final String file;
         final String description;
         final boolean classpath;
+        /** Codec decoded by the operating system, {@code null} when JavaFX decodes the file itself. */
+        final String codec;
+        /** URI of the media (classpath URL or temporary file), once available. */
+        String source;
         int readyEvents;
         int errorEvents;
         Media media;
@@ -99,6 +110,19 @@ public class AudioPage implements FeaturePage {
             this.file = path.substring(path.lastIndexOf('/') + 1);
             this.description = description;
             this.classpath = classpath;
+            this.codec = MediaSupport.systemCodec(path);
+        }
+
+        /**
+         * Whether the player failed because its codec is not available on this system (never on macOS).
+         */
+        boolean codecUnavailable() {
+            return codec != null && source != null && MediaSupport.systemCodecOptional()
+                    && (player == null || status != MediaPlayer.Status.READY);
+        }
+
+        String failure() {
+            return String.valueOf(error != null ? error : status);
         }
     }
 
@@ -166,9 +190,9 @@ public class AudioPage implements FeaturePage {
 
     private static void open(Player player) {
         try {
-            String uri = player.classpath ? Fx.resourceUrl(player.path)
+            player.source = player.classpath ? Fx.resourceUrl(player.path)
                     : Fx.resourceToTempFile(player.path).toUri().toString();
-            player.media = new Media(uri);
+            player.media = new Media(player.source);
             player.player = new MediaPlayer(player.media);
             player.player.setVolume(0);
             player.player.setMute(true);
@@ -207,7 +231,7 @@ public class AudioPage implements FeaturePage {
         buttons.setAlignment(Pos.CENTER_LEFT);
 
         player.position.setFocusTraversable(false);
-        player.time.getStyleClass().add("media-time");
+        MediaSupport.timeLabel(player.time);
 
         ToggleButton mute = MediaSupport.toggle(MediaSupport.MUTE, "M");
         Slider volume = new Slider(0, 1, 0);
@@ -252,11 +276,12 @@ public class AudioPage implements FeaturePage {
             return;
         }
         boolean ok = player.error == null && player.status == MediaPlayer.Status.READY;
+        boolean unavailable = !ok && player.codecUnavailable();
         player.statusLabel.getStyleClass().removeAll("waiting", "failed");
         if (!ok) {
-            player.statusLabel.getStyleClass().add("failed");
+            player.statusLabel.getStyleClass().add(unavailable ? "waiting" : "failed");
         }
-        player.statusLabel.setText(ok ? player.status.name() : "FAILED");
+        player.statusLabel.setText(ok ? player.status.name() : unavailable ? "NO CODEC" : "FAILED");
         if (player.player != null && ok) {
             Duration total = player.player.getTotalDuration();
             player.position.setMax(total.toSeconds());
@@ -360,7 +385,9 @@ public class AudioPage implements FeaturePage {
         List<Check> media = new ArrayList<>();
         for (Player player : state.players) {
             if (player.player == null || player.status != MediaPlayer.Status.READY) {
-                media.add(Check.fail(player.file + ": status", player.error != null ? player.error : player.status));
+                media.add(player.codecUnavailable()
+                        ? Check.info(player.file + ": status", MediaSupport.codecUnavailable(player.codec, player.failure()))
+                        : Check.fail(player.file + ": status", player.error != null ? player.error : player.status));
                 continue;
             }
             media.add(Checks.run(player.file + ": status, duration",
@@ -372,15 +399,19 @@ public class AudioPage implements FeaturePage {
             metadata.add(player.media == null ? "-" : MediaSupport.metadata(player.media.getMetadata()));
         }
         media.add(Check.info("metadata (wav, aiff, m4a)", String.join(", ", metadata)));
-        media.add(Checks.expect("onReady handler calls (wav, aiff, m4a)", "1, 1, 1",
+        // "1, 1, 1" : no call for a player whose codec is not available on this system
+        media.add(Checks.expect("onReady handler calls (wav, aiff, m4a)",
+                String.join(", ", state.players.stream().map(p -> p.codecUnavailable() ? "0" : "1").toList()),
                 () -> String.join(", ", state.players.stream().map(p -> String.valueOf(p.readyEvents)).toList())));
         List<String> classpath = new ArrayList<>();
         boolean classpathOk = true;
         for (Player player : state.classpathPlayers) {
             boolean ok = player.player != null && player.status == MediaPlayer.Status.READY;
-            classpathOk &= ok;
+            boolean unavailable = !ok && player.codecUnavailable();
+            classpathOk &= ok || unavailable;
             classpath.add(player.file + " " + (ok ? player.status + " " + MediaSupport.seconds(player.media.getDuration())
-                    : player.error != null ? player.error : String.valueOf(player.status)));
+                    : unavailable ? MediaSupport.codecUnavailable(player.codec, player.failure())
+                    : player.failure()));
         }
         media.add(Check.of("Media(classpath URL), no temporary file", classpathOk, String.join(", ", classpath)));
 
@@ -415,17 +446,12 @@ public class AudioPage implements FeaturePage {
                     "%d bands, interval %.2f s, threshold %d dB", first.getAudioSpectrumNumBands(),
                     first.getAudioSpectrumInterval(), first.getAudioSpectrumThreshold())));
         }
-        other.add(Checks.expect(state.aifc.file + " (AIFF-C, unsupported)", "MEDIA_CORRUPTED, onError called", () -> {
-            MediaPlayer player = state.aifc.player;
-            if (player == null) {
-                return state.aifc.error;
-            }
-            if (player.getError() != null) {
-                return player.getError().getType().name()
-                        + (state.aifc.errorEvents > 0 ? ", onError called" : ", onError not called");
-            }
-            return player.getStatus() + (state.aifc.error != null ? ": " + state.aifc.error : "");
-        }));
+        if (Platforms.isMac()) {
+            other.add(Checks.expect(state.aifc.file + " (AIFF-C, unsupported)", "MEDIA_CORRUPTED, onError called",
+                    () -> aifcOutcome(state.aifc)));
+        } else {
+            other.add(aifcCheck(state.aifc));
+        }
         Path css;
         try {
             css = Fx.resourceToTempFile("/showcase/media-pages/media.css");
@@ -443,6 +469,40 @@ public class AudioPage implements FeaturePage {
 
         state.mediaChecks.getChildren().setAll(Checks.view("Media & MediaPlayer", media));
         state.otherChecks.getChildren().setAll(Checks.view("AudioClip, equalizer & errors", other));
+    }
+
+    /**
+     * The error reported for the AIFF-C file, or the status of its player.
+     */
+    private static String aifcOutcome(Player aifc) {
+        MediaPlayer player = aifc.player;
+        if (player == null) {
+            return aifc.error;
+        }
+        if (player.getError() != null) {
+            return player.getError().getType().name()
+                    + (aifc.errorEvents > 0 ? ", onError called" : ", onError not called");
+        }
+        return player.getStatus() + (aifc.error != null ? ": " + aifc.error : "");
+    }
+
+    /**
+     * AIFF-C on Windows and Linux : GStreamer may reject the file or play it. A player error must be reported to the
+     * onError handler; any other outcome is informational.
+     */
+    private static Check aifcCheck(Player aifc) {
+        String name = aifc.file + " (AIFF-C)";
+        MediaPlayer player = aifc.player;
+        if (player == null) {
+            // rejected by the Media or MediaPlayer constructor
+            return Check.info(name, "rejected: " + aifc.error);
+        }
+        if (player.getError() != null) {
+            return Check.of(name, aifc.errorEvents > 0, aifcOutcome(aifc));
+        }
+        return Check.info(name, player.getStatus() == MediaPlayer.Status.READY && aifc.error == null
+                ? "READY, supported on this system"
+                : aifcOutcome(aifc));
     }
 
     private static String mediaError(String uri) {

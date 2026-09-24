@@ -38,7 +38,7 @@ public class WebLoadingPage implements FeaturePage {
             <!DOCTYPE html>
             <html><head><meta charset="utf-8"><title>Loaded from a data: URL</title>
             <style>
-            body { margin: 8px; font-family: Helvetica, Arial, sans-serif; font-size: 12px; background: #e3f2fd; color: #0d47a1; }
+            body { margin: 8px; font-family: Helvetica, Arial, 'Liberation Sans', sans-serif; font-size: 12px; background: #e3f2fd; color: #0d47a1; }
             h1 { margin: 0 0 4px 0; font-size: 18px; border-bottom: 2px solid #42a5f5; }
             p { margin: 6px 0; }
             .box { display: inline-block; width: 32px; height: 32px; border-radius: 6px; margin: 2px; }
@@ -66,7 +66,7 @@ public class WebLoadingPage implements FeaturePage {
             <!DOCTYPE html>
             <html><head><meta charset="utf-8"><title>Initial title</title>
             <style>
-            body { margin: 0; padding: 9px 12px; font-family: Helvetica, Arial, sans-serif; font-size: 12px; color: #311b92;
+            body { margin: 0; padding: 9px 12px; font-family: Helvetica, Arial, 'Liberation Sans', sans-serif; font-size: 12px; color: #311b92;
                    background: linear-gradient(90deg, #ede7f6, #e0f7fa); white-space: nowrap; overflow: hidden; }
             span { display: inline-block; margin-left: 14px; padding: 3px 9px; border-radius: 10px; background: white;
                    border: 1px solid #9575cd; }
