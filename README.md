@@ -70,8 +70,7 @@ noise: the same differences appear between two JVM runs using different executio
 
 ```bash
 docker build -t quarkus-fx-showcase-linux docker/linux
-docker run --rm -v "$PWD":/showcase -v "$HOME/.m2":/root/.m2 quarkus-fx-showcase-linux \
-    xvfb-run -a -s "-screen 0 1920x1200x24" java tools/Cycle.java linux
+docker run --rm --init -v "$PWD":/showcase -v "$HOME/.m2":/root/.m2 quarkus-fx-showcase-linux java tools/Cycle.java linux
 ```
 
 ## Pages
