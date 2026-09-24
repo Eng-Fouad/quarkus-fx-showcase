@@ -451,9 +451,14 @@ public class DialogsPage implements FeaturePage {
             List<String> positions = live.images.keySet().stream()
                     .map(key -> key + " " + live.notes.getOrDefault(key, "?")).toList();
             String requested = "+" + WindowSupport.fmt(x - main.getX()) + ",+" + WindowSupport.fmt(y - main.getY());
-            boolean all = positions.size() == 4 && positions.stream().allMatch(p -> p.endsWith(" " + requested));
-            live.checks.add(Check.of("Dialog positions (from owner)", all,
-                    all ? "all 4 at " + requested : String.join(", ", positions)));
+            boolean complete = positions.size() == 4 && positions.stream().noneMatch(p -> p.endsWith(" no owner"));
+            boolean all = complete && positions.stream().allMatch(p -> p.endsWith(" " + requested));
+            // within a device pixel (fractional scales of Windows); informational on Linux (window manager placement)
+            boolean placed = complete && live.images.keySet().stream()
+                    .allMatch(key -> Boolean.TRUE.equals(live.placed.get(key)));
+            live.checks.add(new Check("Dialog positions (from owner)",
+                    all ? "all 4 at " + requested : String.join(", ", positions),
+                    complete ? WindowSupport.placement(all || placed) : Boolean.FALSE));
             live.closeAll();
             if (mainFocused && !main.isFocused()) {
                 main.requestFocus();
@@ -487,6 +492,9 @@ public class DialogsPage implements FeaturePage {
             live.notes.put(key, owner == null ? "no owner"
                     : "+" + WindowSupport.fmt(window.getX() - owner.getX()) + ",+"
                             + WindowSupport.fmt(window.getY() - owner.getY()));
+            live.placed.put(key, owner != null
+                    && WindowSupport.near(window.getX() - owner.getX(), x - owner.getX(), window)
+                    && WindowSupport.near(window.getY() - owner.getY(), y - owner.getY(), window));
         });
     }
 
