@@ -6,7 +6,6 @@ import static io.quarkiverse.fx.showcase.pages.graphics.Tiles.tile;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletionStage;
 
 import jakarta.inject.Singleton;
 
@@ -40,7 +39,8 @@ public class BlendModesPage implements FeaturePage {
     private static final double H = 66;
 
     private static final Color BOTTOM = Color.web("#3366cc");
-    private static final Color TOP = Color.web("#cc6633");
+    // every channel differs from the bottom color, so that RED, GREEN and BLUE each change the result
+    private static final Color TOP = Color.web("#cc9933");
 
     @Override
     public String id() {
@@ -60,11 +60,6 @@ public class BlendModesPage implements FeaturePage {
     @Override
     public int order() {
         return 40;
-    }
-
-    @Override
-    public CompletionStage<?> ready(Node content) {
-        return Tiles.warmUp(content);
     }
 
     @Override
@@ -90,7 +85,7 @@ public class BlendModesPage implements FeaturePage {
                 row(individualOpacity(), groupOpacity(), groupBlend(), nonIsolated(), isolated(), blendOpacity(photo, wheel),
                         cssBlend(), nestedBlend()),
                 Tiles.checks(Checks.view("Blend API and CSS", apiChecks()),
-                        Checks.view("Blend of #3366cc (bottom) and #cc6633 (top)", pixelChecks())));
+                        Checks.view("Blend of #3366cc (bottom) and #cc9933 (top), all 17 modes", pixelChecks())));
     }
 
     private static VBox grid(List<Node> tiles) {
@@ -259,28 +254,51 @@ public class BlendModesPage implements FeaturePage {
                 () -> Tiles.css(new Rectangle(10, 10), "-fx-blend-mode: soft-light;").getBlendMode()));
         checks.add(Checks.expect("inline -fx-blend-mode: color-dodge", BlendMode.COLOR_DODGE,
                 () -> Tiles.css(new Rectangle(10, 10), "-fx-blend-mode: color-dodge;").getBlendMode()));
+        // the top input overflows the bottom one on the right : SRC_OVER keeps it, SRC_ATOP drops it
+        checks.add(Checks.expect("top input only: SRC_OVER / SRC_ATOP", "#cc9933 / #ffffff",
+                () -> blendPixel(BlendMode.SRC_OVER, 25) + " / " + blendPixel(BlendMode.SRC_ATOP, 25)));
         return checks;
     }
 
+    /*
+     * Every BlendMode runs its own Decora peer (PPSBlend_<MODE>Peer, loaded by reflection) and GLSL program
+     * (Blend_<MODE>.frag, loaded as a resource) : each of the 17 modes is rendered here through Node.snapshot.
+     */
     private static List<Check> pixelChecks() {
         List<Check> checks = new ArrayList<>();
-        BlendMode[][] pairs = {
-                { BlendMode.MULTIPLY, BlendMode.SCREEN },
-                { BlendMode.OVERLAY, BlendMode.DIFFERENCE },
-                { BlendMode.ADD, BlendMode.EXCLUSION },
+        BlendMode[][] groups = {
+                { BlendMode.SRC_OVER, BlendMode.SRC_ATOP },
+                { BlendMode.ADD, BlendMode.MULTIPLY },
+                { BlendMode.SCREEN, BlendMode.OVERLAY },
+                { BlendMode.DARKEN, BlendMode.LIGHTEN },
                 { BlendMode.COLOR_DODGE, BlendMode.COLOR_BURN },
-                { BlendMode.SOFT_LIGHT, BlendMode.HARD_LIGHT },
-                { BlendMode.RED, BlendMode.BLUE } };
-        for (BlendMode[] pair : pairs) {
-            checks.add(Checks.run(pair[0] + " / " + pair[1], () -> blendPixel(pair[0]) + " / " + blendPixel(pair[1])));
+                { BlendMode.HARD_LIGHT, BlendMode.SOFT_LIGHT },
+                { BlendMode.DIFFERENCE, BlendMode.EXCLUSION },
+                { BlendMode.RED, BlendMode.GREEN, BlendMode.BLUE } };
+        for (BlendMode[] group : groups) {
+            StringBuilder name = new StringBuilder();
+            for (BlendMode mode : group) {
+                name.append(name.isEmpty() ? "" : " / ").append(mode);
+            }
+            checks.add(Checks.run(name.toString(), () -> {
+                StringBuilder value = new StringBuilder();
+                for (BlendMode mode : group) {
+                    value.append(value.isEmpty() ? "" : " / ").append(blendPixel(mode, 15));
+                }
+                return value.toString();
+            }));
         }
         return checks;
     }
 
-    private static String blendPixel(BlendMode mode) {
-        Rectangle node = new Rectangle(20, 20, Color.TRANSPARENT);
-        node.setEffect(new Blend(mode, new ColorInput(0, 0, 20, 20, BOTTOM), new ColorInput(0, 0, 20, 20, TOP)));
-        String pixel = Tiles.pixel(node, 10, 10);
-        return pixel.substring(0, pixel.indexOf(' '));
+    /**
+     * Blends a 20x20 top input over a 20x20 bottom input shifted 10 px left, returns the pixel at {@code (x, 10)}.
+     */
+    private static String blendPixel(BlendMode mode, int x) {
+        Rectangle node = new Rectangle(30, 20, Color.TRANSPARENT);
+        node.setEffect(new Blend(mode, new ColorInput(0, 0, 20, 20, BOTTOM), new ColorInput(10, 0, 20, 20, TOP)));
+        // #rrggbb : the snapshot is filled with white, every pixel is opaque
+        String pixel = Tiles.pixel(node, x, 10);
+        return pixel.substring(0, 7);
     }
 }

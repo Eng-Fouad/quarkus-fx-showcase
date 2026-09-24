@@ -1,7 +1,6 @@
 package io.quarkiverse.fx.showcase.pages.graphics;
 
 import java.util.Locale;
-import java.util.concurrent.CompletionStage;
 
 import io.quarkiverse.fx.showcase.core.Fx;
 import javafx.geometry.Bounds;
@@ -20,6 +19,7 @@ import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.paint.ImagePattern;
 import javafx.scene.paint.Paint;
+import javafx.scene.shape.Polygon;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.Shape;
 import javafx.scene.text.TextAlignment;
@@ -33,6 +33,8 @@ final class Tiles {
 
     /** Page frame minus its padding. */
     static final double CONTENT_WIDTH = 1028;
+
+    static final double CONTENT_HEIGHT = 728;
 
     /** Width of a tile when 8 tiles share a row. */
     static final double W = 118;
@@ -55,27 +57,34 @@ final class Tiles {
     }
 
     /**
-     * Page root : a vertical box using the graphics stylesheet.
+     * Page root : a vertical box using the graphics stylesheet, starting with a {@link #maskPrimer()}.
      */
     static VBox page(Node... children) {
         VBox root = new VBox(5, children);
+        root.getChildren().add(0, maskPrimer());
         root.getStyleClass().add("gfx-page");
         root.getStylesheets().add(Fx.resourceUrl(STYLESHEET));
         return root;
     }
 
     /**
-     * Readiness of a graphics page : renders the page frame once offscreen before it is captured.
+     * An invisible shape covering the page, rendered before anything else, that makes the rendering of the page
+     * independent of what the window rendered before.
      * <p>
-     * The first 1x rendering of complex shapes after the on-screen (2x) frames can differ by one color level on the
-     * right-most column of their masks, depending on what the window rendered before (Prism mask texture reuse). A
-     * warm-up snapshot of the same node makes the captured rendering independent of that history.
+     * Prism rasterizes complex shapes (paths, polygons, arcs, stroked text, ...) into coverage masks packed in a shared
+     * mask texture, and the right-most column of a mask can pick up (one color level) from the texel next to it, which
+     * holds whatever an earlier rendering left there : an extra on-screen repaint (focus change, window expose) was
+     * enough to change a few edge pixels of the next snapshot. The mask of this primer (more than 512 px wide, so never
+     * cached, and fully transparent) overwrites the shared texture with the same content at the start of every page
+     * rendering. Measured : without it, snapshots of stroked text taken after unrelated renderings differ in about 150
+     * pixels (max delta 1); with it, they are identical.
      */
-    static CompletionStage<Void> warmUp(Node content) {
-        return Fx.pulses(2).thenRun(() -> {
-            Node target = content.getParent() != null ? content.getParent() : content;
-            target.snapshot(null, null);
-        });
+    static Node maskPrimer() {
+        Polygon primer = new Polygon(0, 0, CONTENT_WIDTH, 0, CONTENT_WIDTH, CONTENT_HEIGHT, 0, CONTENT_HEIGHT);
+        primer.setFill(Color.TRANSPARENT);
+        primer.setManaged(false);
+        primer.setMouseTransparent(true);
+        return primer;
     }
 
     static Label section(String text) {
