@@ -41,6 +41,12 @@
             <version>${quarkus-fx.version}</version>
         </dependency>
         <dependency>
+            <!-- JavaHomeFeature (native executables only) -->
+            <groupId>org.graalvm.sdk</groupId>
+            <artifactId>nativeimage</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-controls</artifactId>
             <version>${javafx.version}</version>

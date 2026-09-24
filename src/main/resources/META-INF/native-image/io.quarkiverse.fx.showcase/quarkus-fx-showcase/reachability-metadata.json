@@ -1,0 +1,8 @@
+{
+  "resources": [
+    {
+      "module": "java.base",
+      "glob": "java/time/chrono/hijrah-config-*.properties"
+    }
+  ]
+}

@@ -25,6 +25,7 @@ import javafx.scene.control.TreeView;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 
@@ -44,6 +45,8 @@ public final class MainView {
     private final Label pageTitle = new Label();
     private final StackPane pageFrame = new StackPane();
     private final Map<FeaturePage, TreeItem<Object>> items = new LinkedHashMap<>();
+    // owns the focus in snapshot mode, so that pages never show focus decorations, whether the window is active or not
+    private final Region focusSink = new Region();
 
     private FeaturePage currentPage;
     private Node currentContent;
@@ -96,7 +99,8 @@ public final class MainView {
 
         Label status = new Label(statusText());
         status.getStyleClass().add("status-text");
-        HBox statusBar = new HBox(status);
+        focusSink.setManaged(false);
+        HBox statusBar = new HBox(status, focusSink);
         statusBar.getStyleClass().add("status-bar");
 
         root.setTop(menuBar());
@@ -209,6 +213,16 @@ public final class MainView {
         }
         currentContent = content;
         pageFrame.getChildren().setAll(content);
+        if (ShowcaseMode.snapshot()) {
+            releaseFocus();
+        }
+    }
+
+    /**
+     * Moves the focus out of the page (snapshot mode).
+     */
+    public void releaseFocus() {
+        focusSink.requestFocus();
     }
 
     private static Node errorNode(Throwable t) {
