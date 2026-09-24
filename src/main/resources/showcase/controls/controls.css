@@ -1,0 +1,84 @@
+/* Stylesheet of the controls pages (loaded from the classpath by each page root) */
+
+.controls-page {
+    -fx-font-size: 12px;
+}
+
+.demo-box {
+    -fx-padding: 5 7 7 7;
+    -fx-border-color: #d4d4d4;
+    -fx-border-radius: 4;
+    -fx-background-color: rgba(255, 255, 255, 0.45);
+    -fx-background-radius: 4;
+}
+
+.demo-caption {
+    -fx-font-size: 10px;
+    -fx-text-fill: #6b6b6b;
+}
+
+.group-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+.controls-page .checks-grid .label {
+    -fx-font-size: 11px;
+}
+
+.controls-page .section-title {
+    -fx-font-size: 13px;
+}
+
+/* Buttons page */
+.pill-green {
+    -fx-base: #2e7d32;
+}
+
+.round-button {
+    -fx-background-radius: 16;
+    -fx-padding: 5 16 5 16;
+}
+
+.big-button {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+}
+
+.shadow-button {
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.45), 8, 0.2, 2, 2);
+}
+
+.gradient-button {
+    -fx-background-color: #bf360c, linear-gradient(to bottom, #ffb74d, #e65100);
+    -fx-background-insets: 0, 1;
+    -fx-text-fill: white;
+    -fx-background-radius: 4;
+}
+
+/* Menus page */
+.status-label {
+    -fx-text-fill: #37474f;
+    -fx-font-style: italic;
+}
+
+.context-target {
+    -fx-background-color: #e3f2fd;
+    -fx-border-color: #64b5f6;
+    -fx-border-style: dashed;
+    -fx-padding: 14;
+}
+
+/* RTL page */
+.form-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+.form-copy {
+    -fx-padding: 8;
+    -fx-border-color: #bdbdbd;
+    -fx-border-radius: 4;
+    -fx-background-color: #fbfbfb;
+    -fx-background-radius: 4;
+}
