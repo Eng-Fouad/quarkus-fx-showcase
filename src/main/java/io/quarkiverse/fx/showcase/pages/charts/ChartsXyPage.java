@@ -27,6 +27,7 @@ import javafx.scene.chart.LineChart;
 import javafx.scene.chart.NumberAxis;
 import javafx.scene.chart.ScatterChart;
 import javafx.scene.chart.StackedAreaChart;
+import javafx.scene.chart.ValueAxis;
 import javafx.scene.chart.XYChart;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
@@ -247,6 +248,13 @@ public class ChartsXyPage implements FeaturePage {
                         + ((NumberAxis) bubble.getYAxis()).getMinorTickCount()));
         checks.add(Checks.expect("bubble $ tick formatter", "$7.5",
                 () -> ((NumberAxis) bubble.getYAxis()).getTickLabelFormatter().toString(7.5)));
+        checks.add(Checks.run("own CSS props XY/Line/Area/StArea/NumAxis", () -> ChartSupport.ownCssProperties(
+                XYChart.getClassCssMetaData(), Chart.getClassCssMetaData()) + " / "
+                + ChartSupport.ownCssProperties(LineChart.getClassCssMetaData(), XYChart.getClassCssMetaData()) + " / "
+                + ChartSupport.ownCssProperties(AreaChart.getClassCssMetaData(), XYChart.getClassCssMetaData()) + " / "
+                + ChartSupport.ownCssProperties(StackedAreaChart.getClassCssMetaData(), XYChart.getClassCssMetaData())
+                + " / "
+                + ChartSupport.ownCssProperties(NumberAxis.getClassCssMetaData(), ValueAxis.getClassCssMetaData())));
         checks.add(Checks.expect("legend items per chart", "3,2,3,3,2",
                 () -> List.<Chart> of(line, area, stacked, scatter, bubble).stream()
                         .map(c -> String.valueOf(c.lookupAll(".chart-legend-item").size()))

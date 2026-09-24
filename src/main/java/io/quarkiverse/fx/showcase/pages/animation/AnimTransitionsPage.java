@@ -274,6 +274,14 @@ public class AnimTransitionsPage implements FeaturePage {
                 () -> Animation.INDEFINITE + " / " + fade.getCycleCount()));
         states.add(Checks.run("auto reverse / target framerate",
                 () -> fade.isAutoReverse() + " / " + fade.getTargetFramerate()));
+        states.add(Checks.expect("2 x 1000 ms, delay 500, rate -2", "total 2000.0 ms / -2.0 / 0.0", () -> {
+            FadeTransition delayed = new FadeTransition(Duration.millis(1000));
+            delayed.setDelay(Duration.millis(500));
+            delayed.setCycleCount(2);
+            delayed.setRate(-2);
+            return "total " + ms(delayed.getTotalDuration()) + " / " + delayed.getRate() + " / "
+                    + delayed.getCurrentRate();
+        }));
 
         HBox checks = new HBox(12, Checks.view("Interpolated values", values), Checks.view("Animation states", states));
         checks.getChildren().forEach(c -> ((VBox) c).setPrefWidth(508));

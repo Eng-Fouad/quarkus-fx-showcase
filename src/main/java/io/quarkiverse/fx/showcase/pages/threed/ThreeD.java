@@ -194,6 +194,188 @@ final class ThreeD {
         return image;
     }
 
+    /**
+     * Terrain bumps : center x, center z, radius, amplitude (in the [-1, 1] grid space).
+     */
+    private static final double[][] BUMPS = { { -0.4, -0.3, 0.55, 1.0 }, { 0.45, 0.35, 0.5, 0.8 },
+            { 0.35, -0.5, 0.38, -0.45 }, { -0.5, 0.55, 0.32, 0.5 } };
+
+    /**
+     * Height of the terrain and its partial derivatives at (x, z) in [-1, 1] : polynomials only (compact bumps and
+     * Chebyshev ripples), so that the values do not depend on the implementation of the math functions.
+     */
+    static void terrainHeight(double x, double z, double[] out) {
+        double h = 0;
+        double hx = 0;
+        double hz = 0;
+        for (double[] b : BUMPS) {
+            double dx = x - b[0];
+            double dz = z - b[1];
+            double r2 = b[2] * b[2];
+            double u = (dx * dx + dz * dz) / r2;
+            if (u < 1) {
+                double w = 1 - u;
+                h += b[3] * w * w * w;
+                double d = b[3] * 3 * w * w * (-2 / r2);
+                hx += d * dx;
+                hz += d * dz;
+            }
+        }
+        double t5 = ((16 * x * x - 20) * x * x + 5) * x;
+        double t5d = (80 * x * x - 60) * x * x + 5;
+        double t4 = (8 * z * z - 8) * z * z + 1;
+        double t4d = (32 * z * z - 16) * z;
+        h += 0.06 * t5 * t4;
+        hx += 0.06 * t5d * t4;
+        hz += 0.06 * t5 * t4d;
+        out[0] = h;
+        out[1] = hx;
+        out[2] = hz;
+    }
+
+    /**
+     * A {@code n x n} terrain grid in the POINT_NORMAL_TEXCOORD format : explicit normals, and a texture coordinate
+     * per vertex picking the color of its height in {@link #heightRamp()}. With more than 65536 vertices, the mesh is
+     * sent to the graphics pipeline with 32 bit indices.
+     */
+    static TriangleMesh terrain(int n, float halfSize, float height) {
+        int count = n * n;
+        float[] points = new float[count * 3];
+        float[] normals = new float[count * 3];
+        double[] heights = new double[count];
+        double[] h = new double[3];
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+        double slope = height / halfSize;
+        for (int j = 0; j < n; j++) {
+            for (int i = 0; i < n; i++) {
+                int k = j * n + i;
+                double x = -1 + 2.0 * i / (n - 1);
+                double z = -1 + 2.0 * j / (n - 1);
+                terrainHeight(x, z, h);
+                heights[k] = h[0];
+                min = Math.min(min, h[0]);
+                max = Math.max(max, h[0]);
+                points[k * 3] = (float) (x * halfSize);
+                points[k * 3 + 1] = (float) (-h[0] * height);
+                points[k * 3 + 2] = (float) (z * halfSize);
+                // y is down : the upward normal of y = -height * h(x, z) is (-slope hx, -1, -slope hz)
+                double nx = -slope * h[1];
+                double nz = -slope * h[2];
+                double length = Math.sqrt(nx * nx + 1 + nz * nz);
+                normals[k * 3] = (float) (nx / length);
+                normals[k * 3 + 1] = (float) (-1 / length);
+                normals[k * 3 + 2] = (float) (nz / length);
+            }
+        }
+        float[] texCoords = new float[count * 2];
+        for (int k = 0; k < count; k++) {
+            texCoords[k * 2] = (float) ((0.5 + 255 * (heights[k] - min) / (max - min)) / 256);
+            texCoords[k * 2 + 1] = 0.5f;
+        }
+        int[] faces = new int[(n - 1) * (n - 1) * 2 * 9];
+        int f = 0;
+        for (int j = 0; j < n - 1; j++) {
+            for (int i = 0; i < n - 1; i++) {
+                int a = j * n + i;
+                int b = a + 1;
+                int c = a + n;
+                int d = c + 1;
+                // (b - a) x (c - a) points up (y < 0) : front faces seen from above
+                for (int v : new int[] { a, b, c, b, d, c }) {
+                    faces[f++] = v;
+                    faces[f++] = v;
+                    faces[f++] = v;
+                }
+            }
+        }
+        TriangleMesh mesh = new TriangleMesh(VertexFormat.POINT_NORMAL_TEXCOORD);
+        mesh.getPoints().setAll(points);
+        mesh.getNormals().setAll(normals);
+        mesh.getTexCoords().setAll(texCoords);
+        mesh.getFaces().setAll(faces);
+        return mesh;
+    }
+
+    /**
+     * 256 x 4 color ramp (water, grass, rock, snow), interpolated with integers.
+     */
+    static Image heightRamp() {
+        int[] stops = { 0, 70, 130, 190, 255 };
+        int[] colors = { 0x2b5c8a, 0x3f8f5a, 0x9cbf5a, 0x8a6a45, 0xf4f4f4 };
+        WritableImage image = new WritableImage(256, 4);
+        PixelWriter writer = image.getPixelWriter();
+        for (int x = 0; x < 256; x++) {
+            int s = 0;
+            while (s < stops.length - 2 && x > stops[s + 1]) {
+                s++;
+            }
+            int span = stops[s + 1] - stops[s];
+            int t = x - stops[s];
+            int rgb = 0;
+            for (int shift = 16; shift >= 0; shift -= 8) {
+                int c0 = colors[s] >> shift & 0xff;
+                int c1 = colors[s + 1] >> shift & 0xff;
+                rgb |= (c0 + (c1 - c0) * t / span) << shift;
+            }
+            for (int y = 0; y < 4; y++) {
+                writer.setArgb(x, y, 0xff000000 | rgb);
+            }
+        }
+        return image;
+    }
+
+    /**
+     * An 8 sided prism with caps (POINT_TEXCOORD) : 18 points, 32 faces (16 sides, 8 + 8 caps). All faces use the
+     * same texture coordinate : the mesh is only colored by its material.
+     */
+    static TriangleMesh prism(float radius, float halfHeight) {
+        float s = (float) Math.sqrt(0.5);
+        float[][] ring = { { 1, 0 }, { s, s }, { 0, 1 }, { -s, s }, { -1, 0 }, { -s, -s }, { 0, -1 }, { s, -s } };
+        TriangleMesh mesh = new TriangleMesh();
+        for (float[] p : ring) {
+            mesh.getPoints().addAll(p[0] * radius, -halfHeight, p[1] * radius); // 0..7 top ring
+        }
+        for (float[] p : ring) {
+            mesh.getPoints().addAll(p[0] * radius, halfHeight, p[1] * radius); // 8..15 bottom ring
+        }
+        mesh.getPoints().addAll(0, -halfHeight, 0, 0, halfHeight, 0); // 16 top center, 17 bottom center
+        mesh.getTexCoords().addAll(0.5f, 0.5f);
+        for (int k = 0; k < 8; k++) {
+            int next = (k + 1) % 8;
+            // sides (outward : (p1 - p0) x (p2 - p0) points away from the axis)
+            addFace(mesh, k, 8 + k, next);
+            addFace(mesh, next, 8 + k, 8 + next);
+        }
+        for (int k = 0; k < 8; k++) {
+            int next = (k + 1) % 8;
+            addFace(mesh, 16, k, next); // top cap, facing up
+        }
+        for (int k = 0; k < 8; k++) {
+            int next = (k + 1) % 8;
+            addFace(mesh, 17, 8 + next, 8 + k); // bottom cap, facing down
+        }
+        return mesh;
+    }
+
+    private static void addFace(TriangleMesh mesh, int p0, int p1, int p2) {
+        mesh.getFaces().addAll(p0, 0, p1, 0, p2, 0);
+    }
+
+    /**
+     * 64 x 64 specular map : 8 pixel horizontal bands, white (shiny) and black (matte).
+     */
+    static Image stripes() {
+        WritableImage image = new WritableImage(64, 64);
+        PixelWriter writer = image.getPixelWriter();
+        for (int y = 0; y < 64; y++) {
+            for (int x = 0; x < 64; x++) {
+                writer.setArgb(x, y, (y / 8) % 2 == 0 ? 0xffffffff : 0xff000000);
+            }
+        }
+        return image;
+    }
+
     static String bounds(Bounds b) {
         return String.format(Locale.ROOT, "%.1f x %.1f x %.1f", b.getWidth(), b.getHeight(), b.getDepth());
     }

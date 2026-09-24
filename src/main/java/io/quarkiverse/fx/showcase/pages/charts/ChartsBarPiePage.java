@@ -20,8 +20,10 @@ import io.quarkiverse.fx.showcase.core.Fx;
 import javafx.collections.FXCollections;
 import javafx.geometry.Side;
 import javafx.scene.Node;
+import javafx.scene.chart.Axis;
 import javafx.scene.chart.BarChart;
 import javafx.scene.chart.CategoryAxis;
+import javafx.scene.chart.Chart;
 import javafx.scene.chart.NumberAxis;
 import javafx.scene.chart.PieChart;
 import javafx.scene.chart.StackedBarChart;
@@ -227,6 +229,12 @@ public class ChartsBarPiePage implements FeaturePage {
                         + num(pieCcw.getLabelLineLength())));
         checks.add(Checks.run("pie data0 gradient from -fx-pie-color",
                 () -> pieColor(pieCcw.getData().get(0).getNode())));
+        checks.add(Checks.run("own CSS props Pie/Bar/StackedBar/CatAxis", () -> ChartSupport.ownCssProperties(
+                PieChart.getClassCssMetaData(), Chart.getClassCssMetaData()) + " / "
+                + ChartSupport.ownCssProperties(BarChart.getClassCssMetaData(), XYChart.getClassCssMetaData()) + " / "
+                + ChartSupport.ownCssProperties(StackedBarChart.getClassCssMetaData(), XYChart.getClassCssMetaData())
+                + " / "
+                + ChartSupport.ownCssProperties(CategoryAxis.getClassCssMetaData(), Axis.getClassCssMetaData())));
         checks.add(Checks.expect("pie legend items / CSS legend visible", "5 / false",
                 () -> pieCw.lookupAll(".chart-legend-item").size() + " / " + pieCcw.isLegendVisible()));
         return checks;
