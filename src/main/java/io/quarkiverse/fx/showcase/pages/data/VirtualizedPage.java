@@ -125,6 +125,16 @@ public class VirtualizedPage implements FeaturePage {
         return table;
     }
 
+    private static String visibleItems(Node virtualized) {
+        javafx.scene.control.skin.VirtualFlow<?> flow = DataUi.flow(virtualized);
+        return label(flow.getFirstVisibleCell()) + ".." + label(flow.getLastVisibleCell());
+    }
+
+    private static String label(IndexedCell<?> cell) {
+        Object item = cell == null ? null : cell.getItem();
+        return item instanceof Item i ? i.name() : String.valueOf(item);
+    }
+
     private static String cellText(Node virtualized, int index) {
         IndexedCell<?> cell = DataUi.flow(virtualized).getCell(index);
         return cell == null ? "none" : String.valueOf(cell.getItem());
@@ -238,6 +248,8 @@ public class VirtualizedPage implements FeaturePage {
                         Checks.expect("TableView selected", "Item 0" + (TABLE_INDEX + 3),
                                 () -> bigTable.getSelectionModel().getSelectedItem().name()),
                         check("filtered visible range", () -> DataUi.visibleRange(filterTable)),
+                        check("first / last visible items", () -> visibleItems(bigList) + " · "
+                                + visibleItems(bigTable)),
                         check("cell counts", () -> DataUi.flow(bigList).getCellCount() + " / "
                                 + DataUi.flow(bigTable).getCellCount() + " / " + DataUi.flow(filterTable).getCellCount()),
                         check("list cell height", () -> String.valueOf(
