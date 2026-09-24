@@ -108,7 +108,11 @@ public class PlatformServicesPage implements FeaturePage {
             cell.setAlignment(Pos.CENTER_LEFT);
             grid.add(cell, i / rows, i % rows);
         }
-        List<Check> checks = List.of(Check.info("Color valued preferences", keys.size() + " of " + preferences.size()));
+        List<Check> checks = List.of(Check.info("Color valued preferences", keys.size() + " of " + preferences.size()),
+                Check.info("Other preferences", new TreeSet<>(preferences.keySet()).stream()
+                        // the network path state (reduced data) is already shown, and may change between runs
+                        .filter(key -> !(preferences.get(key) instanceof Color) && !key.contains("NWPathMonitor"))
+                        .map(key -> key + "=" + preferenceValue(preferences.get(key))).collect(Collectors.joining(", "))));
         VBox box = PlatformUi.demo("Platform.getPreferences() : " + keys.size() + " Color entries of " + preferences.size()
                 + " (sorted keys)", grid);
         Checks.attach(box, checks);
@@ -345,8 +349,18 @@ public class PlatformServicesPage implements FeaturePage {
                     Font bold = Font.font("System", FontWeight.BOLD, FontPosture.ITALIC, 14);
                     return bold.getName() + " " + bold.getSize();
                 }));
-        checks.add(Check.info("Font.getFamilies() / getFontNames()", Font.getFamilies().size() + " families, "
-                + Font.getFontNames().size() + " fonts"));
+        // Font.loadFont / @font-face fonts of other pages join these lists (depending on when they are first listed) :
+        // only the installed fonts are counted, so that this page does not depend on the pages shown before it
+        checks.add(Checks.run("Font.getFamilies() / getFontNames()", () -> {
+            List<String> families = Font.getFamilies();
+            if (!families.containsAll(List.of("Helvetica", "Menlo", "Times New Roman"))) {
+                throw new IllegalStateException("Helvetica, Menlo or Times New Roman missing in " + families.size()
+                        + " families");
+            }
+            return families.stream().filter(PlatformServicesPage::isSystemFont).count() + " system families, "
+                    + Font.getFontNames().stream().filter(PlatformServicesPage::isSystemFont).count()
+                    + " fonts";
+        }));
         checks.add(Checks.run("Text layout width (default font)",
                 () -> PlatformUi.round(new Text("Quarkus FX native").getLayoutBounds().getWidth())));
 
@@ -377,6 +391,20 @@ public class PlatformServicesPage implements FeaturePage {
         VBox box = PlatformUi.demo("Fonts and threading predicates", holder,
                 PlatformUi.checks(null, checks, 190, width - 18));
         return PlatformUi.width(box, width);
+    }
+
+    /**
+     * A preference value without identity hash codes (some values are arrays).
+     */
+    private static String preferenceValue(Object value) {
+        return value instanceof Object[] array ? java.util.Arrays.toString(array) : String.valueOf(value);
+    }
+
+    /**
+     * Not one of the fonts bundled with the showcase (/showcase/fonts), which other pages may have loaded.
+     */
+    private static boolean isSystemFont(String name) {
+        return !(name.startsWith("Roboto") || name.startsWith("Droid") || name.startsWith("Font Awesome"));
     }
 
     @Override
