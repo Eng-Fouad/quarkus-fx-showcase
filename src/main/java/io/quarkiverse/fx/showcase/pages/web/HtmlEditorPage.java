@@ -11,6 +11,7 @@ import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.Platforms;
 import io.quarkiverse.fx.showcase.core.ShowcaseMode;
 import javafx.concurrent.Worker;
 import javafx.scene.Node;
@@ -21,6 +22,7 @@ import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import javafx.scene.text.Font;
 import javafx.scene.web.HTMLEditor;
 import javafx.scene.web.WebView;
 
@@ -88,7 +90,8 @@ public class HtmlEditorPage implements FeaturePage {
         state.source.setEditable(false);
         state.source.setWrapText(true);
         state.source.setFocusTraversable(false);
-        state.source.setStyle("-fx-font-family: 'Menlo', monospace; -fx-font-size: 10px;");
+        // JavaFX CSS -fx-font-family takes a single family : the monospaced one of the platform ("Menlo" on macOS)
+        state.source.setStyle("-fx-font-family: '" + Platforms.Families.mono() + "'; -fx-font-size: 10px;");
         state.source.setPrefSize(372, 410);
         state.source.setMinSize(372, 410);
         state.source.setMaxSize(372, 410);
@@ -205,8 +208,10 @@ public class HtmlEditorPage implements FeaturePage {
             return String.join(", ", values);
         }));
         skin.add(Checks.expect("font family combo populated", true, () -> {
+            // the installed families (and an empty entry) : more than 20, unless fewer are installed (minimal Linux)
+            int expected = Math.min(20, Font.getFamilies().size());
             for (Node node : editor.lookupAll(".font-menu-button")) {
-                if (node instanceof ComboBox<?> combo && combo.getItems().size() > 20) {
+                if (node instanceof ComboBox<?> combo && combo.getItems().size() > expected) {
                     return true;
                 }
             }
