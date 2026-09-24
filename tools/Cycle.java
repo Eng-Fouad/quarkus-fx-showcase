@@ -120,7 +120,14 @@ public class Cycle {
             command.add("-o");
         }
         command.addAll(List.of(args));
-        return new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(log.toFile()).start().waitFor();
+        ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(log.toFile());
+        // build with the JDK running this tool (GraalVM for native builds), whatever the shell environment says
+        Path javaHome = Path.of(System.getProperty("java.home"));
+        builder.environment().put("JAVA_HOME", javaHome.toString());
+        if (Files.exists(javaHome.resolve("bin").resolve(windows ? "native-image.cmd" : "native-image"))) {
+            builder.environment().put("GRAALVM_HOME", javaHome.toString());
+        }
+        return builder.start().waitFor();
     }
 
     static int java(Path output, String... args) throws IOException, InterruptedException {
