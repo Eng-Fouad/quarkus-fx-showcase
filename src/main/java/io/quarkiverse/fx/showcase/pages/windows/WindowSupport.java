@@ -16,7 +16,9 @@ import java.util.function.Predicate;
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.Fx;
+import io.quarkiverse.fx.showcase.core.MainView;
 import io.quarkiverse.fx.showcase.core.ShowcaseMode;
+import javafx.event.Event;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Parent;
@@ -26,6 +28,8 @@ import javafx.scene.chart.Axis;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.image.Image;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -42,14 +46,32 @@ final class WindowSupport {
 
     static final String CSS = "/showcase/windows/windows.css";
 
+    /**
+     * Width available to a page : the page frame minus its padding (16 on each side, see app.css .page-frame).
+     */
+    static final double PAGE_CONTENT_WIDTH = MainView.PAGE_WIDTH - 32;
+
     private static final String FONT_AWESOME = "/showcase/fonts/fa-solid-900.ttf";
     private static final String LIVE_KEY = "showcase.windows.live";
     private static final String SECTION_KEY = "showcase.windows.live-section";
     private static final String TITLE_KEY = "showcase.windows.live-title";
     private static final String INITIAL_KEY = "showcase.windows.live-initial";
     private static String iconFamily;
+    private static Font iconFont;
 
     private WindowSupport() {
+    }
+
+    /**
+     * The root of a page : styled, and as wide as the page frame, so that long check values wrap instead of widening
+     * the page (and its snapshot).
+     */
+    static VBox page(double spacing) {
+        VBox root = styled(new VBox(spacing));
+        root.getStyleClass().add("windows-page");
+        root.setPrefWidth(PAGE_CONTENT_WIDTH);
+        root.setMaxWidth(PAGE_CONTENT_WIDTH);
+        return root;
     }
 
     /**
@@ -115,10 +137,24 @@ final class WindowSupport {
 
     static synchronized String iconFamily() {
         if (iconFamily == null) {
-            Font font = Font.loadFont(Fx.resourceUrl(FONT_AWESOME), 14);
-            iconFamily = font == null ? "System" : font.getFamily();
+            iconFont = Font.loadFont(Fx.resourceUrl(FONT_AWESOME), 14);
+            iconFamily = iconFont == null ? "System" : iconFont.getFamily();
         }
         return iconFamily;
+    }
+
+    /**
+     * The icon font is loaded from a classpath URL (Font.loadFont reads the stream into a temporary file registered
+     * with the OS) : a failure would silently fall back to the System font, drawing missing glyph boxes.
+     */
+    static Check iconFontCheck() {
+        return Checks.run("Font.loadFont(fa-solid-900.ttf)", () -> {
+            String family = iconFamily();
+            if (iconFont == null) {
+                throw new IllegalStateException("Font.loadFont returned null, icons drawn with " + family);
+            }
+            return "family " + iconFont.getFamily() + ", name " + iconFont.getName();
+        });
     }
 
     /**
@@ -153,7 +189,8 @@ final class WindowSupport {
     /**
      * In snapshot mode, removes from a secondary window what would make its snapshot vary between runs :
      * <ul>
-     * <li>hover, which depends on the mouse position : the root is made mouse transparent;</li>
+     * <li>hover, which depends on the mouse position : the root is made mouse transparent (already done by
+     * {@link #shield(Window)} right after show()) and the hover states that were set anyway are cleared;</li>
      * <li>focus visuals, which depend on the OS window focus : the focus is moved to the root, which has no focused
      * style;</li>
      * <li>effects (the drop shadows of modena.css popups, slider thumbs, scroll bar arrows...) : Prism renders them
@@ -167,12 +204,30 @@ final class WindowSupport {
         if (ShowcaseMode.snapshot() && scene != null && scene.getRoot() != null) {
             Parent root = scene.getRoot();
             root.setMouseTransparent(true);
-            root.requestFocus();
             visit(root, node -> {
+                if (node.isHover()) {
+                    // mouseTransparent stops new hover states, not the ones already set
+                    Event.fireEvent(node, new MouseEvent(MouseEvent.MOUSE_EXITED_TARGET, 0, 0, 0, 0, MouseButton.NONE,
+                            0, false, false, false, false, false, false, false, false, false, false, null));
+                }
                 if (node.getEffect() != null) {
                     node.setEffect(null);
                 }
             });
+            root.requestFocus();
+        }
+    }
+
+    /**
+     * In snapshot mode, makes the content of a window that was just shown ignore the mouse. Called in the same Fx
+     * thread runnable as show() : the OS mouse events of the new window (a window appearing under a still mouse
+     * cursor gets an "entered" event) are only processed afterwards, so no node takes the hover state, whatever the
+     * position of the mouse cursor during the run.
+     */
+    static void shield(Window window) {
+        if (ShowcaseMode.snapshot() && window != null && window.getScene() != null
+                && window.getScene().getRoot() != null) {
+            window.getScene().getRoot().setMouseTransparent(true);
         }
     }
 
@@ -220,6 +275,8 @@ final class WindowSupport {
 
         final List<Check> checks = new ArrayList<>();
         final Map<String, Image> images = new LinkedHashMap<>();
+        /** Facts recorded by the steps, per captured image key. */
+        final Map<String, String> notes = new LinkedHashMap<>();
         final List<Window> opened = new ArrayList<>();
         private final String title;
         private boolean disposed;
