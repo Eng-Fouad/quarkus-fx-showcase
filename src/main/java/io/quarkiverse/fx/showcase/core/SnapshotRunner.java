@@ -95,8 +95,13 @@ public class SnapshotRunner {
         CompletionStage<Void> chain = Fx.pulses(5)
                 .thenCompose(v -> Fx.delay(settleMillis))
                 .thenCompose(v -> Fx.pulses(2))
-                .thenRunAsync(() -> writeImage(stage.getScene().getRoot().snapshot(parameters(), null),
-                        out.resolve("_main-window.png")), Fx.FX_THREAD);
+                .thenRunAsync(() -> {
+                    // limited to the scene : focus rings may be painted outside of it
+                    SnapshotParameters parameters = parameters();
+                    parameters.setViewport(new Rectangle2D(0, 0, stage.getScene().getWidth() * scale,
+                            stage.getScene().getHeight() * scale));
+                    writeImage(stage.getScene().getRoot().snapshot(parameters, null), out.resolve("_main-window.png"));
+                }, Fx.FX_THREAD);
         for (FeaturePage page : selected) {
             chain = chain.thenComposeAsync(v -> capture(view, page, out), Fx.FX_THREAD).thenAccept(results::add);
         }

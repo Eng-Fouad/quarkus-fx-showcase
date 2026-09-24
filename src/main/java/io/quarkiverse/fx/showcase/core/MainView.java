@@ -67,6 +67,8 @@ public final class MainView {
         }
         nav.setRoot(navRoot);
         nav.setShowRoot(false);
+        // a focused tree paints a focus ring and another selection color, depending on the window being active
+        nav.setFocusTraversable(!ShowcaseMode.snapshot());
         nav.setPrefWidth(270);
         nav.setCellFactory(tree -> new TreeCell<>() {
             @Override
