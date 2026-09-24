@@ -81,6 +81,7 @@ public class VideoPage implements FeaturePage {
         final Slider position = new Slider(0, 1, 0);
         final VBox videoChecks = new VBox();
         final VBox viewChecks = new VBox();
+        int readyEvents;
         String error;
         CompletionStage<?> ready;
     }
@@ -96,6 +97,7 @@ public class VideoPage implements FeaturePage {
             state.player = new MediaPlayer(state.media);
             state.player.setVolume(0);
             state.player.setMute(true);
+            state.player.setOnReady(() -> state.readyEvents++);
             state.main.setMediaPlayer(state.player);
         } catch (Throwable t) {
             state.error = Checks.describe(t);
@@ -204,11 +206,14 @@ public class VideoPage implements FeaturePage {
     }
 
     /**
-     * Seeks, waits until the current time is stable (the position reached can differ from the requested one :
-     * AVFoundation seeks to whole seconds on macOS), then until the main MediaView renders the same frame twice.
+     * Seeks, waits until the current time left its previous value and is stable (the position reached can differ from
+     * the requested one : AVFoundation seeks to whole seconds on macOS), then until the main MediaView renders the
+     * same frame twice, with the background color of the clip at that time (red, green then blue every second).
      */
     private static CompletionStage<WritableImage> seekAndSettle(State state, Duration time) {
         MediaPlayer player = state.player;
+        double before = player.getCurrentTime().toSeconds();
+        boolean moves = Math.abs(before - time.toSeconds()) >= 0.5;
         player.seek(time);
         double[] last = { -1 };
         int[] stable = { 0 };
@@ -216,16 +221,25 @@ public class VideoPage implements FeaturePage {
             double now = player.getCurrentTime().toSeconds();
             stable[0] = now == last[0] ? stable[0] + 1 : 0;
             last[0] = now;
-            return stable[0] >= 10 && Math.abs(now - time.toSeconds()) < 0.6;
+            return stable[0] >= 10 && Math.abs(now - time.toSeconds()) < 0.6 && (!moves || now != before);
         }, 10_000, "current time after seek(" + MediaSupport.seconds(time) + ")")
                 .thenCompose(v -> Fx.delay(200))
-                .thenCompose(v -> stableSnapshot(state.main));
+                .thenCompose(v -> stableSnapshot(state.main, expectedColor(player.getCurrentTime())));
     }
 
     /**
-     * Snapshots {@code view} every few pulses until two consecutive snapshots are identical.
+     * Background color of the clip at {@code time}.
      */
-    private static CompletionStage<WritableImage> stableSnapshot(MediaView view) {
+    private static String expectedColor(Duration time) {
+        int second = (int) Math.floor(time.toSeconds() + 0.001);
+        return second <= 0 ? "red" : second == 1 ? "green" : "blue";
+    }
+
+    /**
+     * Snapshots {@code view} every few pulses until two consecutive snapshots are identical and show the expected
+     * background color (the frame of the new position was rendered).
+     */
+    private static CompletionStage<WritableImage> stableSnapshot(MediaView view, String color) {
         java.util.concurrent.CompletableFuture<WritableImage> done = new java.util.concurrent.CompletableFuture<>();
         int[][] previous = { null };
         int[] identical = { 0 };
@@ -243,8 +257,8 @@ public class VideoPage implements FeaturePage {
                     javafx.scene.image.PixelFormat.getIntArgbInstance(), pixels, 0, width);
             identical[0] = java.util.Arrays.equals(pixels, previous[0]) ? identical[0] + 1 : 0;
             previous[0] = pixels;
-            return identical[0] >= 2;
-        }, 5_000, "a stable video frame").whenComplete((v, error) -> {
+            return identical[0] >= 2 && color.equals(dominant(image[0]));
+        }, 5_000, "a stable " + color + " video frame").whenComplete((v, error) -> {
             if (error != null) {
                 done.completeExceptionally(error);
             } else {
@@ -354,7 +368,8 @@ public class VideoPage implements FeaturePage {
         video.add(state.error == null ? Check.pass("ready, paused and seeked", "OK") : Check.fail("ready, paused and seeked", state.error));
         if (player != null) {
             Media media = state.media;
-            video.add(Checks.expect("status", "PAUSED", () -> player.getStatus().name()));
+            video.add(Checks.expect("status, onReady handler calls", "PAUSED, 1",
+                    () -> player.getStatus().name() + ", " + state.readyEvents));
             video.add(Checks.expect("media width x height", "320x180", () -> media.getWidth() + "x" + media.getHeight()));
             video.add(Checks.expect("duration", "3.0 s", () -> MediaSupport.seconds(media.getDuration())));
             video.add(Checks.run("currentTime after seek(" + MediaSupport.seconds(SEEK) + ")",

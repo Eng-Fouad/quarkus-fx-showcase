@@ -47,6 +47,11 @@ public class AudioPage implements FeaturePage {
             { "/showcase/media/hello.m4a", "MPEG-4, AAC" } };
     /** An AIFF-C file : not supported by JavaFX, the error must be reported through the error properties. */
     private static final String AIFC = "/showcase/media/hello.aiff";
+    /**
+     * Played from their classpath URL, without temporary file : jar: URLs in JVM mode, resource: URLs in a native
+     * image (both protocols are supported by JavaFX media).
+     */
+    private static final String[] CLASSPATH_FILES = { "/showcase/media/hello.wav", "/showcase/media/hello.m4a" };
     private static final double[] GAINS = { 6, 4, 2, 0, -2, -4, -2, 0, 3, 6 };
 
     @Override
@@ -73,6 +78,9 @@ public class AudioPage implements FeaturePage {
         final String path;
         final String file;
         final String description;
+        final boolean classpath;
+        int readyEvents;
+        int errorEvents;
         Media media;
         MediaPlayer player;
         String error;
@@ -83,14 +91,20 @@ public class AudioPage implements FeaturePage {
         CompletionStage<Void> done;
 
         Player(String path, String description) {
+            this(path, description, false);
+        }
+
+        Player(String path, String description, boolean classpath) {
             this.path = path;
             this.file = path.substring(path.lastIndexOf('/') + 1);
             this.description = description;
+            this.classpath = classpath;
         }
     }
 
     private static final class State {
         final List<Player> players = new ArrayList<>();
+        final List<Player> classpathPlayers = new ArrayList<>();
         Player aifc;
         AudioClip clip;
         String clipError;
@@ -113,6 +127,11 @@ public class AudioPage implements FeaturePage {
         }
         state.aifc = new Player(AIFC, "AIFF-C");
         open(state.aifc);
+        for (String path : CLASSPATH_FILES) {
+            Player player = new Player(path, "classpath URL", true);
+            state.classpathPlayers.add(player);
+            open(player);
+        }
 
         HBox tools = new HBox(16, equalizerCard(state.players.getFirst()), clipCard(state));
 
@@ -132,6 +151,7 @@ public class AudioPage implements FeaturePage {
 
         List<Player> players = new ArrayList<>(state.players);
         players.add(state.aifc);
+        players.addAll(state.classpathPlayers);
         CompletableFuture<?>[] all = players.stream().map(p -> p.done.toCompletableFuture())
                 .toArray(CompletableFuture[]::new);
         state.ready = CompletableFuture.allOf(all)
@@ -146,11 +166,15 @@ public class AudioPage implements FeaturePage {
 
     private static void open(Player player) {
         try {
-            String uri = Fx.resourceToTempFile(player.path).toUri().toString();
+            String uri = player.classpath ? Fx.resourceUrl(player.path)
+                    : Fx.resourceToTempFile(player.path).toUri().toString();
             player.media = new Media(uri);
             player.player = new MediaPlayer(player.media);
             player.player.setVolume(0);
             player.player.setMute(true);
+            // events of the native player, dispatched to the handlers on the Fx thread
+            player.player.setOnReady(() -> player.readyEvents++);
+            player.player.setOnError(() -> player.errorEvents++);
             player.done = MediaSupport.ready(player.player, 15_000).handle((status, error) -> {
                 player.status = status;
                 player.error = error != null ? MediaSupport.describe(error) : MediaSupport.playerError(player.player);
@@ -292,7 +316,10 @@ public class AudioPage implements FeaturePage {
         card.setPrefWidth(506);
         card.setMinWidth(506);
         try {
-            state.clip = new AudioClip(Fx.resourceToTempFile("/showcase/media/hello.wav").toUri().toString());
+            // the temporary file of the wav player : copying it again could replace it while the player reads it
+            Player wav = state.players.getFirst();
+            state.clip = new AudioClip(wav.media != null ? wav.media.getSource()
+                    : Fx.resourceToTempFile(wav.path).toUri().toString());
             state.clip.setVolume(0);
             AudioClip clip = state.clip;
             GridPane grid = new GridPane();
@@ -345,6 +372,17 @@ public class AudioPage implements FeaturePage {
             metadata.add(player.media == null ? "-" : MediaSupport.metadata(player.media.getMetadata()));
         }
         media.add(Check.info("metadata (wav, aiff, m4a)", String.join(", ", metadata)));
+        media.add(Checks.expect("onReady handler calls (wav, aiff, m4a)", "1, 1, 1",
+                () -> String.join(", ", state.players.stream().map(p -> String.valueOf(p.readyEvents)).toList())));
+        List<String> classpath = new ArrayList<>();
+        boolean classpathOk = true;
+        for (Player player : state.classpathPlayers) {
+            boolean ok = player.player != null && player.status == MediaPlayer.Status.READY;
+            classpathOk &= ok;
+            classpath.add(player.file + " " + (ok ? player.status + " " + MediaSupport.seconds(player.media.getDuration())
+                    : player.error != null ? player.error : String.valueOf(player.status)));
+        }
+        media.add(Check.of("Media(classpath URL), no temporary file", classpathOk, String.join(", ", classpath)));
 
         List<Check> other = new ArrayList<>();
         if (state.clip == null) {
@@ -359,6 +397,12 @@ public class AudioPage implements FeaturePage {
                     clip.getCycleCount())));
             other.add(Checks.expect("AudioClip.isPlaying()", false, clip::isPlaying));
         }
+        other.add(Checks.expect("AudioClip(classpath URL)", "hello.wav, not playing", () -> {
+            AudioClip classpathClip = new AudioClip(Fx.resourceUrl("/showcase/media/hello.wav"));
+            classpathClip.setVolume(0);
+            String source = classpathClip.getSource();
+            return source.substring(source.lastIndexOf('/') + 1) + (classpathClip.isPlaying() ? ", playing" : ", not playing");
+        }));
         MediaPlayer first = state.players.getFirst().player;
         if (first != null) {
             other.add(Checks.expect("AudioEqualizer bands (Hz)", "32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000",
@@ -371,22 +415,31 @@ public class AudioPage implements FeaturePage {
                     "%d bands, interval %.2f s, threshold %d dB", first.getAudioSpectrumNumBands(),
                     first.getAudioSpectrumInterval(), first.getAudioSpectrumThreshold())));
         }
-        other.add(Checks.expect(state.aifc.file + " (AIFF-C, unsupported)", "MEDIA_CORRUPTED", () -> {
+        other.add(Checks.expect(state.aifc.file + " (AIFF-C, unsupported)", "MEDIA_CORRUPTED, onError called", () -> {
             MediaPlayer player = state.aifc.player;
             if (player == null) {
                 return state.aifc.error;
             }
             if (player.getError() != null) {
-                return player.getError().getType().name();
+                return player.getError().getType().name()
+                        + (state.aifc.errorEvents > 0 ? ", onError called" : ", onError not called");
             }
             return player.getStatus() + (state.aifc.error != null ? ": " + state.aifc.error : "");
         }));
-        other.add(Checks.expect("Media of a missing file", "MEDIA_UNAVAILABLE", () -> {
-            Path dir = Fx.resourceToTempFile("/showcase/media-pages/media.css").getParent();
-            return mediaError(dir.resolve("missing-file.wav").toUri().toString());
-        }));
-        other.add(Checks.expect("Media of a .css file", "MEDIA_UNSUPPORTED",
-                () -> mediaError(Fx.resourceToTempFile("/showcase/media-pages/media.css").toUri().toString())));
+        Path css;
+        try {
+            css = Fx.resourceToTempFile("/showcase/media-pages/media.css");
+        } catch (Throwable t) {
+            css = null;
+            other.add(Check.fail("temporary file of media.css", Checks.describe(t)));
+        }
+        if (css != null) {
+            Path cssFile = css;
+            other.add(Checks.expect("Media of a missing file", "MEDIA_UNAVAILABLE",
+                    () -> mediaError(cssFile.resolveSibling("missing-file.wav").toUri().toString())));
+            other.add(Checks.expect("Media of a .css file", "MEDIA_UNSUPPORTED",
+                    () -> mediaError(cssFile.toUri().toString())));
+        }
 
         state.mediaChecks.getChildren().setAll(Checks.view("Media & MediaPlayer", media));
         state.otherChecks.getChildren().setAll(Checks.view("AudioClip, equalizer & errors", other));
@@ -412,6 +465,7 @@ public class AudioPage implements FeaturePage {
         if (state != null) {
             List<Player> players = new ArrayList<>(state.players);
             players.add(state.aifc);
+            players.addAll(state.classpathPlayers);
             for (Player player : players) {
                 if (player.player != null) {
                     player.player.dispose();

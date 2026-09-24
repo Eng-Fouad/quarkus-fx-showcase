@@ -31,6 +31,8 @@ public class WebLoadingPage implements FeaturePage {
 
     private static final String STATE = WebLoadingPage.class.getName();
     private static final String CLASSPATH_PAGE = "/showcase/web/loaded.html";
+    private static final String CLASSPATH_CSS = "/showcase/web/loaded.css";
+    private static final String STYLESHEET = "/showcase/web/web-loading.css";
 
     private static final String DATA_PAGE = """
             <!DOCTYPE html>
@@ -148,16 +150,19 @@ public class WebLoadingPage implements FeaturePage {
         final Loaded zoomed = new Loaded(245, 280);
         final Loaded callbacks = new Loaded(1028, 40);
         final Loaded headless = new Loaded();
+        /** A WebEngine without WebView, with a user style sheet given as a classpath URL. */
+        final Loaded classpathStyle = new Loaded();
         final List<String> alerts = new ArrayList<>();
         final List<String> confirms = new ArrayList<>();
         final List<String> prompts = new ArrayList<>();
         final VBox loadChecks = new VBox();
         final VBox styleChecks = new VBox();
         String styleSheetError;
+        String classpathStyleError;
         CompletionStage<?> ready;
 
         List<Loaded> all() {
-            return List.of(classpath, data, styled, zoomed, callbacks, headless);
+            return List.of(classpath, data, styled, zoomed, callbacks, headless, classpathStyle);
         }
     }
 
@@ -172,8 +177,14 @@ public class WebLoadingPage implements FeaturePage {
         } catch (Throwable t) {
             state.styleSheetError = Checks.describe(t);
         }
-        state.zoomed.view.setZoom(ZOOM);
-        state.zoomed.view.setFontScale(FONT_SCALE);
+        try {
+            // jar: in JVM mode, resource: in a native image
+            state.classpathStyle.engine.setUserStyleSheetLocation(Fx.resourceUrl(CLASSPATH_CSS));
+        } catch (Throwable t) {
+            state.classpathStyleError = Checks.describe(t);
+        }
+        // zoom, font scale and font smoothing set by the page style sheet (WebView CSS properties)
+        state.zoomed.view.getStyleClass().add("zoomed-view");
 
         WebEngine callbacks = state.callbacks.engine;
         callbacks.setOnAlert(event -> state.alerts.add(event.getData()));
@@ -193,12 +204,13 @@ public class WebLoadingPage implements FeaturePage {
         state.zoomed.engine.load(dataUrl);
         callbacks.loadContent(CALLBACKS_PAGE);
         state.headless.engine.load(Fx.resourceUrl(CLASSPATH_PAGE));
+        state.classpathStyle.engine.loadContent("<html><body><h1>Styled from the classpath</h1></body></html>");
 
         HBox views = new HBox(16,
                 column("load(classpath URL of loaded.html)", state.classpath.view),
                 column("load(data:text/html;base64,...)", state.data.view),
                 column("+ setUserStyleSheetLocation(data:)", state.styled.view),
-                column("+ zoom " + ZOOM + ", fontScale " + FONT_SCALE, state.zoomed.view));
+                column("CSS -fx-zoom: " + ZOOM + ", -fx-font-scale: " + FONT_SCALE, state.zoomed.view));
         VBox callbacksBox = new VBox(4,
                 WebSupport.caption("loadContent + onAlert, confirmHandler, promptHandler, title property"),
                 state.callbacks.view);
@@ -211,6 +223,7 @@ public class WebLoadingPage implements FeaturePage {
         HBox checks = new HBox(16, state.loadChecks, state.styleChecks);
 
         VBox root = new VBox(10, views, callbacksBox, checks);
+        root.getStylesheets().add(Fx.resourceUrl(STYLESHEET));
         root.getProperties().put(STATE, state);
 
         state.ready = CompletableFuture.allOf(state.all().stream().map(l -> l.done.toCompletableFuture())
@@ -221,6 +234,8 @@ public class WebLoadingPage implements FeaturePage {
                     return null;
                 })
                 .thenCompose(v -> Fx.pulses(10))
+                // images are decoded and painted asynchronously by WebKit
+                .thenCompose(v -> WebSupport.stable(root, 10_000))
                 .thenCompose(v -> Fx.delay(200));
         return root;
     }
@@ -265,6 +280,12 @@ public class WebLoadingPage implements FeaturePage {
         load.add(Checks.expect("JavaScript disabled: DOM text", "loaded.js did not run",
                 () -> headless.engine.getDocument().getElementById("script-out").getTextContent()));
 
+        Loaded classpathStyle = state.classpathStyle;
+        load.add(state.classpathStyleError != null
+                ? Check.fail("setUserStyleSheetLocation(classpath URL)", state.classpathStyleError)
+                : Checks.expect("setUserStyleSheetLocation(classpath URL)", "rgb(46, 125, 50)",
+                        () -> script(classpathStyle, "getComputedStyle(document.querySelector('h1')).color")));
+
         List<Check> style = new ArrayList<>();
         Loaded styled = state.styled;
         Loaded zoomed = state.zoomed;
@@ -278,8 +299,9 @@ public class WebLoadingPage implements FeaturePage {
                 () -> script(styled, "getComputedStyle(document.body).backgroundColor")));
         style.add(Checks.expect("user style: h1 font-style", "italic",
                 () -> script(styled, "getComputedStyle(document.querySelector('h1')).fontStyle")));
-        style.add(Checks.expect("zoom / fontScale", ZOOM + " / " + FONT_SCALE,
-                () -> zoomed.view.getZoom() + " / " + zoomed.view.getFontScale()));
+        style.add(Checks.expect("CSS zoom / fontScale / smoothing", ZOOM + " / " + FONT_SCALE + " / GRAY",
+                () -> zoomed.view.getZoom() + " / " + zoomed.view.getFontScale() + " / "
+                        + zoomed.view.getFontSmoothingType()));
         style.add(Checks.run("innerWidth at zoom 1 / " + ZOOM,
                 () -> script(data, "window.innerWidth") + " / " + script(zoomed, "window.innerWidth")));
         style.add(Checks.run("text height at fontScale 1 / " + FONT_SCALE,
