@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Stream;
 
@@ -23,6 +24,10 @@ import javax.imageio.ImageIO;
  * Images whose differences are at most {@link #NOISE_MAX_DELTA} per channel on less than {@link #NOISE_MAX_RATIO} of
  * the pixels are reported as NOISE : the same variations exist between two JVM runs using different execution modes
  * (e.g. JIT vs -Xint), they come from floating point evaluation, not from the native image.
+ * <p>
+ * The images and check values of a page flagged {@code runtimeDependent} in the reports (a page showing where the JVM
+ * and a native image legitimately differ) are reported as EXPECTED when they differ : they are not mismatches, but
+ * failed checks and errors of such a page still are.
  */
 public class Compare {
 
@@ -39,15 +44,6 @@ public class Compare {
         int tolerance = args.length > 3 ? Integer.parseInt(args[3]) : 0;
         Files.createDirectories(out);
 
-        // Images
-        TreeSet<String> names = new TreeSet<>();
-        names.addAll(pngs(a));
-        names.addAll(pngs(b));
-        List<ImageResult> images = new ArrayList<>();
-        for (String name : names) {
-            images.add(compareImage(a.resolve(name), b.resolve(name), out, name, tolerance));
-        }
-
         // Reports
         Map<String, Object> reportA = readReport(a);
         Map<String, Object> reportB = readReport(b);
@@ -55,15 +51,37 @@ public class Compare {
         Map<String, Map<String, Object>> pagesB = pages(reportB);
         TreeSet<String> pageIds = new TreeSet<>(pagesA.keySet());
         pageIds.addAll(pagesB.keySet());
+        Set<String> runtimeDependent = new TreeSet<>();
+        for (Map<String, Map<String, Object>> pages : List.of(pagesA, pagesB)) {
+            pages.forEach((id, page) -> {
+                if (Boolean.TRUE.equals(page.get("runtimeDependent"))) {
+                    runtimeDependent.add(id);
+                }
+            });
+        }
+
+        // Images
+        TreeSet<String> names = new TreeSet<>();
+        names.addAll(pngs(a));
+        names.addAll(pngs(b));
+        List<ImageResult> images = new ArrayList<>();
+        for (String name : names) {
+            ImageResult r = compareImage(a.resolve(name), b.resolve(name), out, name, tolerance);
+            if (!r.status.equals("IDENTICAL") && !r.status.equals("NOISE") && runtimeDependent.contains(pageId(name))) {
+                r = new ImageResult(r.file, "EXPECTED", r.differing, r.total, r.maxDelta, r.diffFile);
+            }
+            images.add(r);
+        }
 
         List<String> lines = new ArrayList<>();
         int mismatches = 0;
         int errorPages = 0;
         int sameErrorPages = 0;
+        Set<String> expectedPages = new TreeSet<>();
 
         lines.add("A = " + a + " (" + reportA.getOrDefault("runtime", "?") + ")");
         lines.add("B = " + b + " (" + reportB.getOrDefault("runtime", "?") + ")");
-        for (String key : List.of("javafxVersion", "javaVersion", "screen", "conditionalFeatures")) {
+        for (String key : List.of("javafxVersion", "javaVersion", "screen", "pipeline", "conditionalFeatures")) {
             if (!String.valueOf(reportA.get(key)).equals(String.valueOf(reportB.get(key)))) {
                 lines.add("ENV DIFF " + key + ": A=" + reportA.get(key) + " | B=" + reportB.get(key));
                 mismatches++;
@@ -72,7 +90,9 @@ public class Compare {
         lines.add("");
         lines.add("== Images (tolerance " + tolerance + ")");
         for (ImageResult r : images) {
-            if (!r.status.equals("IDENTICAL") && !r.status.equals("NOISE")) {
+            if (r.status.equals("EXPECTED")) {
+                expectedPages.add(pageId(r.file));
+            } else if (!r.status.equals("IDENTICAL") && !r.status.equals("NOISE")) {
                 mismatches++;
             }
             lines.add(String.format("%-10s %-60s %s", r.status, r.file,
@@ -95,7 +115,12 @@ public class Compare {
                 checkNames.addAll(cb.keySet());
                 for (String c : checkNames) {
                     if (!String.valueOf(ca.get(c)).equals(String.valueOf(cb.get(c)))) {
-                        notes.add("check '" + c + "': A=" + ca.get(c) + " | B=" + cb.get(c));
+                        if (runtimeDependent.contains(id)) {
+                            notes.add("expected: check '" + c + "': A=" + ca.get(c) + " | B=" + cb.get(c));
+                            expectedPages.add(id);
+                        } else {
+                            notes.add("check '" + c + "': A=" + ca.get(c) + " | B=" + cb.get(c));
+                        }
                     }
                 }
                 if (!String.valueOf(pa.get("extras")).equals(String.valueOf(pb.get("extras")))) {
@@ -119,7 +144,8 @@ public class Compare {
                 if (sameErrors) {
                     sameErrorPages++;
                 }
-                if (notes.stream().anyMatch(n -> !n.startsWith("error") && !n.startsWith("same error"))) {
+                if (notes.stream().anyMatch(n -> !n.startsWith("error") && !n.startsWith("same error")
+                        && !n.startsWith("expected"))) {
                     mismatches++;
                 }
                 pageNotes.put(id, notes);
@@ -139,12 +165,23 @@ public class Compare {
         long noise = images.stream().filter(r -> r.status.equals("NOISE")).count();
         String verdict = mismatches == 0 && errorPages == 0 ? "MATCH" : "MISMATCH";
         lines.add(0, String.format("%s : %d/%d images identical, %d floating point noise, %d mismatches, %d pages with errors, "
-                + "%d pages with the same errors in both runs", verdict, identical, images.size(), noise, mismatches, errorPages,
-                sameErrorPages));
+                + "%d pages with the same errors in both runs, %d runtime dependent pages with EXPECTED differences %s",
+                verdict, identical, images.size(), noise, mismatches, errorPages, sameErrorPages, expectedPages.size(),
+                expectedPages));
         Files.write(out.resolve("summary.txt"), lines, StandardCharsets.UTF_8);
         writeHtml(out, a, b, reportA, reportB, images, pageNotes, lines.getFirst());
         lines.forEach(System.out::println);
         System.exit(verdict.equals("MATCH") ? 0 : 1);
+    }
+
+    /**
+     * The id of the page an image belongs to : {@code <page>.png}, {@code <page>--<extra>.png}, and the size suffix
+     * of SIZE results.
+     */
+    static String pageId(String image) {
+        String name = image.contains(" (") ? image.substring(0, image.indexOf(" (")) : image;
+        name = name.endsWith(".png") ? name.substring(0, name.length() - 4) : name;
+        return name.contains("--") ? name.substring(0, name.indexOf("--")) : name;
     }
 
     static List<String> pngs(Path dir) throws IOException {
@@ -243,7 +280,7 @@ public class Compare {
         StringBuilder html = new StringBuilder("""
                 <!doctype html><meta charset="utf-8"><title>JVM vs native</title>
                 <style>body{font:14px -apple-system,sans-serif;margin:20px}table{border-collapse:collapse}
-                td,th{border:1px solid #ccc;padding:3px 8px;text-align:left}.IDENTICAL{color:#1b7f3a}.NOISE{color:#8a6d00}.DIFFERENT,.SIZE,.ONLY_A,.ONLY_B{color:#c62828;font-weight:bold}
+                td,th{border:1px solid #ccc;padding:3px 8px;text-align:left}.IDENTICAL{color:#1b7f3a}.NOISE{color:#8a6d00}.EXPECTED{color:#1565c0}.DIFFERENT,.SIZE,.ONLY_A,.ONLY_B{color:#c62828;font-weight:bold}
                 .row{display:flex;gap:8px;margin:8px 0 24px}.row figure{margin:0;flex:1}.row img{width:100%;border:1px solid #ccc}
                 figcaption{font-size:12px;color:#555}pre{background:#f6f6f6;padding:8px;white-space:pre-wrap}</style>
                 """);

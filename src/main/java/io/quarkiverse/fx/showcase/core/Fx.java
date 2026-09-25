@@ -84,6 +84,10 @@ public final class Fx {
 
     /**
      * Completes when {@code value} holds a value matching {@code predicate}.
+     * <p>
+     * {@code value} and its listener stay strongly reachable until then ({@link #PENDING}) : a binding (e.g.
+     * {@code Bindings.createBooleanBinding}) is only weakly referenced by its dependencies, and would otherwise be
+     * garbage collected with the listener before it changes, whenever a garbage collection happens during the wait.
      */
     public static <T> CompletionStage<T> when(ObservableValue<T> value, java.util.function.Predicate<? super T> predicate) {
         CompletableFuture<T> done = new CompletableFuture<>();
@@ -91,18 +95,24 @@ public final class Fx {
             done.complete(value.getValue());
             return done;
         }
-        javafx.beans.value.ChangeListener<T> listener = new javafx.beans.value.ChangeListener<>() {
-            @Override
-            public void changed(ObservableValue<? extends T> observable, T oldValue, T newValue) {
-                if (predicate.test(newValue)) {
-                    value.removeListener(this);
-                    done.complete(newValue);
-                }
+        javafx.beans.value.ChangeListener<T> listener = (observable, oldValue, newValue) -> {
+            if (predicate.test(newValue)) {
+                done.complete(newValue);
             }
         };
+        PENDING.add(done);
         value.addListener(listener);
+        done.whenComplete((result, error) -> {
+            value.removeListener(listener);
+            PENDING.remove(done);
+        });
         return done;
     }
+
+    /**
+     * The stages of {@link #when} waiting for their value : each one references its value and listener.
+     */
+    private static final java.util.Set<CompletableFuture<?>> PENDING = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /**
      * Classpath resource, {@code path} being absolute (e.g. {@code /showcase/images/pattern.png}).

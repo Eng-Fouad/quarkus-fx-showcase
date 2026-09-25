@@ -9,6 +9,7 @@ import io.quarkiverse.fx.showcase.core.Categories;
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
+import io.quarkiverse.fx.showcase.core.ShowcaseMode;
 import javafx.application.ConditionalFeature;
 import javafx.application.Platform;
 import javafx.geometry.Rectangle2D;
@@ -48,6 +49,7 @@ public class OverviewPage implements FeaturePage {
         checks.add(Check.info("javafx.runtime.version", System.getProperty("javafx.runtime.version")));
         checks.add(Check.info("java.version", System.getProperty("java.version")));
         checks.add(Check.info("os", System.getProperty("os.name") + " " + System.getProperty("os.arch")));
+        checks.add(Check.info("prism pipeline", ShowcaseMode.graphicsPipeline()));
         Screen screen = Screen.getPrimary();
         Rectangle2D bounds = screen.getBounds();
         checks.add(Check.info("screen bounds", bounds.getWidth() + " x " + bounds.getHeight()));

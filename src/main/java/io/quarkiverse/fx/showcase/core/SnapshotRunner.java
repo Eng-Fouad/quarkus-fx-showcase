@@ -128,6 +128,7 @@ public class SnapshotRunner {
         result.put("id", page.id());
         result.put("title", page.title());
         result.put("category", page.category());
+        result.put("runtimeDependent", page.runtimeDependent());
 
         view.select(page);
         Node content = view.currentContent();
@@ -243,6 +244,7 @@ public class SnapshotRunner {
         Rectangle2D bounds = screen.getBounds();
         report.put("screen", bounds.getWidth() + "x" + bounds.getHeight() + " @" + screen.getOutputScaleX() + "x, "
                 + screen.getDpi() + " dpi");
+        report.put("pipeline", ShowcaseMode.graphicsPipeline());
         Map<String, Object> features = new LinkedHashMap<>();
         for (ConditionalFeature feature : ConditionalFeature.values()) {
             features.put(feature.name(), Platform.isSupported(feature));

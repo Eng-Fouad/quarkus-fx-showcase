@@ -55,6 +55,13 @@ Pages must be deterministic (no running animation, clock, randomness, caret or h
 pixels. Differences of at most 2 levels per channel on less than 0.5% of the pixels are reported as floating point
 noise: the same differences appear between two JVM runs using different execution modes (JIT vs `-Xint`).
 
+A page whose `runtimeDependent()` is `true` shows where a native image legitimately behaves differently from the JVM
+because of JavaFX itself (`platform-native-limits`: the cause, found in the JavaFX sources, and a workaround working in
+both runtimes). Its differences are reported as `EXPECTED`, not as mismatches; its failed checks still are.
+
+Both runs of a comparison must use the same Prism pipeline (`d3d`, `mtl`, `es2` or `sw`): it is shown on the
+environment page and in `report.json`, and a difference is reported as an `ENV DIFF` mismatch.
+
 ## Application-level native configuration
 
 Everything JavaFX needs in a native executable comes from quarkus-fx, except what depends on the application itself:
@@ -65,7 +72,26 @@ Everything JavaFX needs in a native executable comes from quarkus-fx, except wha
   objects exposed to JavaScript in a WebView, serialization of the clipboard custom format, and the Hijrah calendar data
   (with `JavaHomeFeature`, a workaround for [oracle/graal#11410](https://github.com/oracle/graal/issues/11410))
 - `WebKitNativeSupport`: on macOS, `libjfxwebkit.dylib` links to `libjvm.dylib` without using it, an empty stand-in is
-  installed next to it so that WebView loads in native executables
+  installed next to it so that WebView loads in native executables (not needed on Windows: no JavaFX DLL imports
+  `jvm.dll`, see `dumpbin /dependents jfxwebkit.dll`)
+
+## JavaFX behaviors the pages work around
+
+They exist in JVM mode too, but make runs differ or fail depending on timing:
+
+- Windows clipboard: when another process (e.g. the Windows clipboard history) asks for a format of clipboard content
+  JavaFX already replaced, Glass gets no data and calls `GetArrayLength` on a null array (`GlassClipboard.cpp`,
+  `OLE_CHECK_NOTNULL` does not stop in release builds): the process crashes. `platform-services` keeps its content until
+  the page is left, so that such readers complete first.
+- Text layout cache: layouts of the same text and font share their runs (`PrismTextLayout`), whose metrics depend on
+  the bounds type of the layout that created them. A Label laid out with Modena's centered bounds moves Canvas text drawn
+  with `VPos.CENTER` in the same font. `images-canvas` uses a font size no label uses.
+- Media (GStreamer engine, Windows): after a seek of a paused player, the frame shown can be the previous key frame
+  instead of the frame of the new position; some players show frames about one second ahead of their time from the
+  start, and a few fail before READY (`ERROR_MEDIA_INVALID`). `media-video` reads the frame number drawn in the clip:
+  it repeats a seek from another position until the frame of the current time is shown, and replaces a player whose
+  first seek to 0 does not show frame 0. A few runs still fail (all the new players fail with `ERROR_MEDIA_INVALID`
+  once one got stuck).
 
 ## Native image configuration tools
 

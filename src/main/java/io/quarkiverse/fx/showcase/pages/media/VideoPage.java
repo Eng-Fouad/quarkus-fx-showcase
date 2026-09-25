@@ -8,6 +8,8 @@ import java.util.concurrent.CompletionStage;
 
 import jakarta.inject.Singleton;
 
+import org.jboss.logging.Logger;
+
 import io.quarkiverse.fx.showcase.core.Categories;
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
@@ -50,9 +52,17 @@ import javafx.util.Duration;
 @Singleton
 public class VideoPage implements FeaturePage {
 
+    private static final Logger LOG = Logger.getLogger(VideoPage.class);
+
     private static final String STATE = VideoPage.class.getName();
     private static final Duration SEEK = Duration.seconds(1.5);
     private static final Duration[] STRIP = { Duration.ZERO, Duration.seconds(1), Duration.seconds(2) };
+    /** Frame rate of clip.mp4 (tools/GenVideo.swift), which draws the number of each frame. */
+    private static final int FPS = 30;
+    /** Seeks of the same position until the frame of the reached position is shown (GStreamer engine). */
+    private static final int SEEK_ATTEMPTS = 3;
+    /** Players opened until one shows the frames of its current time (GStreamer engine, see {@link #prepare}). */
+    private static final int PLAYER_ATTEMPTS = 6;
 
     @Override
     public String id() {
@@ -85,6 +95,7 @@ public class VideoPage implements FeaturePage {
         final Label statusLabel = new Label("WAITING");
         final Label time = new Label("-:--.- / -:--.-");
         final Slider position = new Slider(0, 1, 0);
+        final ToggleButton mute = MediaSupport.toggle(MediaSupport.MUTE, "M");
         final VBox videoChecks = new VBox();
         final VBox viewChecks = new VBox();
         int readyEvents;
@@ -106,14 +117,7 @@ public class VideoPage implements FeaturePage {
         State state = new State();
         try {
             state.source = Fx.resourceToTempFile("/showcase/media/clip.mp4").toUri().toString();
-            state.media = new Media(state.source);
-            state.media.getMarkers().put("start", Duration.seconds(0.5));
-            state.media.getMarkers().put("end", Duration.seconds(2.5));
-            state.player = new MediaPlayer(state.media);
-            state.player.setVolume(0);
-            state.player.setMute(true);
-            state.player.setOnReady(() -> state.readyEvents++);
-            state.main.setMediaPlayer(state.player);
+            open(state);
         } catch (Throwable t) {
             state.error = Checks.describe(t);
         }
@@ -193,28 +197,47 @@ public class VideoPage implements FeaturePage {
         return root;
     }
 
-    private static CompletionStage<?> prepare(State state) {
-        MediaPlayer player = state.player;
-        CompletionStage<?> chain = MediaSupport.ready(player, 15_000)
-                .thenCompose(status -> {
-                    if (status != MediaPlayer.Status.READY) {
-                        throw new IllegalStateException(status + ": " + MediaSupport.playerError(player));
-                    }
-                    state.readyReached = true;
-                    player.pause();
-                    // PAUSED on macOS, READY with the GStreamer engine (no documented READY -> PAUSED transition)
-                    MediaPlayer.Status paused = MediaSupport.mp4StatusAfterPauseWhenReady();
-                    return MediaSupport.until(() -> player.getStatus() == paused, 10_000, paused.name());
-                });
-        // frames at whole seconds, captured with MediaView.snapshot()
-        for (int i = 0; i < STRIP.length; i++) {
-            int index = i;
-            chain = chain.thenCompose(v -> seekAndSettle(state, STRIP[index]))
-                    .thenAccept(image -> state.strip.get(index).setImage(image));
+    /**
+     * Opens clip.mp4 in a new player, shown by every MediaView of the page and driven by its controls. A previous
+     * player is disposed.
+     */
+    private static void open(State state) {
+        MediaPlayer previous = state.player;
+        if (previous != null) {
+            state.mute.selectedProperty().unbindBidirectional(previous.muteProperty());
+            previous.dispose();
         }
-        // final position
-        return chain.thenCompose(v -> seekAndSettle(state, SEEK))
-                .thenCompose(v -> Fx.pulses(5))
+        state.media = new Media(state.source);
+        state.media.getMarkers().put("start", Duration.seconds(0.5));
+        state.media.getMarkers().put("end", Duration.seconds(2.5));
+        MediaPlayer player = new MediaPlayer(state.media);
+        state.player = player;
+        state.readyEvents = 0;
+        player.setVolume(0);
+        player.setMute(true);
+        player.setCycleCount(MediaPlayer.INDEFINITE);
+        player.setOnReady(() -> state.readyEvents++);
+        player.currentTimeProperty().addListener((o, oldTime, newTime) -> {
+            if (!state.position.isValueChanging()) {
+                state.position.setValue(newTime.toSeconds());
+            }
+            state.time.setText(MediaSupport.time(newTime) + " / " + MediaSupport.time(player.getMedia().getDuration()));
+        });
+        state.mute.selectedProperty().bindBidirectional(player.muteProperty());
+        state.main.setMediaPlayer(player);
+        state.variants.forEach(view -> view.setMediaPlayer(player));
+    }
+
+    /**
+     * Pauses the player once READY, captures the frames of the strip, then seeks to the final position.
+     * <p>
+     * With the GStreamer engine on Windows, some players show frames about one second ahead of their time from the
+     * start, whatever the seeks (e.g. frame 31 after seek(0), frame 89 after seek(1)), and a few fail before READY
+     * (ERROR_MEDIA_INVALID), in JVM and native mode alike. Such a player, detected by a first seek to 0, is replaced by
+     * a new one, up to {@link #PLAYER_ATTEMPTS} players.
+     */
+    private static CompletionStage<?> prepare(State state) {
+        return settle(state, 1)
                 .handle((v, error) -> {
                     if (error != null) {
                         state.error = MediaSupport.describe(error);
@@ -226,14 +249,85 @@ public class VideoPage implements FeaturePage {
                 .thenCompose(v -> Fx.pulses(5));
     }
 
+    private static CompletionStage<Void> settle(State state, int playerAttempt) {
+        MediaPlayer player = state.player;
+        // verified on Windows only : elsewhere, the frame shown after a seek is accepted after SEEK_ATTEMPTS seeks
+        boolean windows = Platforms.isWindows();
+        boolean lastPlayer = !windows || playerAttempt >= PLAYER_ATTEMPTS;
+        CompletionStage<?> chain = MediaSupport.ready(player, 15_000)
+                .thenCompose(status -> {
+                    if (status != MediaPlayer.Status.READY) {
+                        throw new IllegalStateException(status + ": " + MediaSupport.playerError(player));
+                    }
+                    state.readyReached = true;
+                    player.pause();
+                    // PAUSED on macOS, READY with the GStreamer engine (no documented READY -> PAUSED transition)
+                    MediaPlayer.Status paused = MediaSupport.mp4StatusAfterPauseWhenReady();
+                    return MediaSupport.until(() -> player.getStatus() == paused, 10_000, paused.name());
+                });
+        if (windows) {
+            // frame 0 expected : otherwise the player is replaced
+            chain = chain.thenCompose(v -> seekAndSettle(state, Duration.ZERO, 1, 1, false));
+        }
+        // frames at whole seconds, captured with MediaView.snapshot()
+        for (int i = 0; i < STRIP.length; i++) {
+            int index = i;
+            chain = chain.thenCompose(v -> seekAndSettle(state, STRIP[index], 1, SEEK_ATTEMPTS, lastPlayer))
+                    .thenAccept(image -> state.strip.get(index).setImage(image));
+        }
+        // final position
+        CompletionStage<Void> settled = chain.thenCompose(v -> seekAndSettle(state, SEEK, 1, SEEK_ATTEMPTS, lastPlayer))
+                .thenCompose(v -> Fx.pulses(5));
+        if (lastPlayer) {
+            return settled;
+        }
+        // also when the player failed before READY : a missing H.264 decoder makes every player fail, and is reported
+        // after the last one
+        return settled.exceptionallyComposeAsync(error -> {
+            LOG.infof("Player %d replaced : %s", playerAttempt, MediaSupport.describe(error));
+            open(state);
+            return settle(state, playerAttempt + 1);
+        }, Fx.FX_THREAD);
+    }
+
     /**
      * Seeks, waits until the current time left its previous value and is stable (the position reached can differ from
      * the requested one : AVFoundation seeks to whole seconds on macOS, other engines may stop at the previous key
      * frame, one per second in the clip), then until the main MediaView renders the
      * same frame twice, with the background color of the clip at that time (red, green then blue every second).
+     * <p>
+     * With the GStreamer engine (Windows, Linux), the frame shown by a paused player after a seek depends on timing :
+     * usually the frame of the reached position, sometimes the previous key frame or the frame shown before the seek.
+     * The number drawn in the frame must then match the current time, otherwise the seek is done again, from another
+     * position (seeking to the current position does not render a new frame). After {@code attempts} seeks, any stable
+     * frame of the expected color is accepted when {@code fallback} is set (an engine that always stops at key frames).
      */
-    private static CompletionStage<WritableImage> seekAndSettle(State state, Duration time) {
+    private static CompletionStage<WritableImage> seekAndSettle(State state, Duration time, int attempt, int attempts,
+            boolean fallback) {
         MediaPlayer player = state.player;
+        boolean frameMatch = !Platforms.isMac() && attempt <= attempts;
+        CompletionStage<?> from = attempt == 1 ? CompletableFuture.completedFuture(null)
+                : seek(player, away(time, attempt));
+        CompletionStage<WritableImage> settled = from
+                .thenCompose(v -> seek(player, time))
+                .thenCompose(v -> Fx.delay(200))
+                .thenCompose(v -> {
+                    Duration reached = player.getCurrentTime();
+                    int frame = frameMatch ? (int) Math.round(reached.toSeconds() * FPS) : -1;
+                    return stableSnapshot(state.main, expectedColor(reached), frame, frameMatch ? 1_500 : 5_000);
+                });
+        if (!frameMatch) {
+            return settled;
+        }
+        return settled.exceptionallyCompose(error -> attempt < attempts || fallback
+                ? seekAndSettle(state, time, attempt + 1, attempts, fallback)
+                : CompletableFuture.failedFuture(error));
+    }
+
+    /**
+     * Seeks, then waits until the current time left its previous value and is stable.
+     */
+    private static CompletionStage<Void> seek(MediaPlayer player, Duration time) {
         double before = player.getCurrentTime().toSeconds();
         boolean moves = Math.abs(before - time.toSeconds()) >= 0.5;
         player.seek(time);
@@ -244,9 +338,17 @@ public class VideoPage implements FeaturePage {
             stable[0] = now == last[0] ? stable[0] + 1 : 0;
             last[0] = now;
             return stable[0] >= 10 && Math.abs(now - time.toSeconds()) < 0.6 && (!moves || now != before);
-        }, 10_000, "current time after seek(" + MediaSupport.seconds(time) + ")")
-                .thenCompose(v -> Fx.delay(200))
-                .thenCompose(v -> stableSnapshot(state.main, expectedColor(player.getCurrentTime())));
+        }, 10_000, "current time after seek(" + MediaSupport.seconds(time) + ")");
+    }
+
+    /**
+     * A key frame (whole second of the clip) at least 0.5 s away from {@code time}, to seek to before seeking to
+     * {@code time} again : one of the two other whole seconds, alternately.
+     */
+    private static Duration away(Duration time, int attempt) {
+        int second = (int) Math.floor(time.toSeconds());
+        int[] others = second == 0 ? new int[] { 1, 2 } : second == 1 ? new int[] { 2, 0 } : new int[] { 1, 0 };
+        return Duration.seconds(others[attempt % 2]);
     }
 
     /**
@@ -259,9 +361,11 @@ public class VideoPage implements FeaturePage {
 
     /**
      * Snapshots {@code view} every few pulses until two consecutive snapshots are identical and show the expected
-     * background color (the frame of the new position was rendered).
+     * background color (the frame of the new position was rendered), and the expected frame number unless it is
+     * negative.
      */
-    private static CompletionStage<WritableImage> stableSnapshot(MediaView view, String color) {
+    private static CompletionStage<WritableImage> stableSnapshot(MediaView view, String color, int frame,
+            long timeoutMillis) {
         java.util.concurrent.CompletableFuture<WritableImage> done = new java.util.concurrent.CompletableFuture<>();
         int[][] previous = { null };
         int[] identical = { 0 };
@@ -279,8 +383,8 @@ public class VideoPage implements FeaturePage {
                     javafx.scene.image.PixelFormat.getIntArgbInstance(), pixels, 0, width);
             identical[0] = java.util.Arrays.equals(pixels, previous[0]) ? identical[0] + 1 : 0;
             previous[0] = pixels;
-            return identical[0] >= 2 && color.equals(dominant(image[0]));
-        }, 5_000, "a stable " + color + " video frame").whenComplete((v, error) -> {
+            return identical[0] >= 2 && color.equals(dominant(image[0])) && (frame < 0 || frameNumber(image[0]) == frame);
+        }, timeoutMillis, "a stable " + color + " video frame" + (frame < 0 ? "" : " #" + frame)).whenComplete((v, error) -> {
             if (error != null) {
                 done.completeExceptionally(error);
             } else {
@@ -328,31 +432,22 @@ public class VideoPage implements FeaturePage {
         play.getStyleClass().add("primary");
         Button pause = MediaSupport.button(MediaSupport.PAUSE, "||");
         Button stop = MediaSupport.button(MediaSupport.STOP, "[]");
-        ToggleButton mute = MediaSupport.toggle(MediaSupport.MUTE, "M");
         MediaSupport.timeLabel(state.time);
         state.position.setFocusTraversable(false);
         Region grow2 = new Region();
         HBox.setHgrow(grow2, Priority.ALWAYS);
-        HBox buttons = MediaSupport.fixHeight(new HBox(6, play, pause, stop, grow2, state.time, mute), 30);
+        HBox buttons = MediaSupport.fixHeight(new HBox(6, play, pause, stop, grow2, state.time, state.mute), 30);
         buttons.setAlignment(Pos.CENTER_LEFT);
         MediaSupport.fixHeight(state.position, 20);
 
-        MediaPlayer player = state.player;
-        if (player != null) {
-            play.setOnAction(e -> player.play());
-            pause.setOnAction(e -> player.pause());
-            stop.setOnAction(e -> player.stop());
-            mute.selectedProperty().bindBidirectional(player.muteProperty());
-            player.setCycleCount(MediaPlayer.INDEFINITE);
-            player.currentTimeProperty().addListener((o, oldTime, newTime) -> {
-                if (!state.position.isValueChanging()) {
-                    state.position.setValue(newTime.toSeconds());
-                }
-                state.time.setText(MediaSupport.time(newTime) + " / " + MediaSupport.time(player.getMedia().getDuration()));
-            });
+        // the current player (see open)
+        if (state.player != null) {
+            play.setOnAction(e -> state.player.play());
+            pause.setOnAction(e -> state.player.pause());
+            stop.setOnAction(e -> state.player.stop());
             state.position.valueChangingProperty().addListener((o, was, changing) -> {
                 if (!changing) {
-                    player.seek(Duration.seconds(state.position.getValue()));
+                    state.player.seek(Duration.seconds(state.position.getValue()));
                 }
             });
         }
@@ -447,6 +542,24 @@ public class VideoPage implements FeaturePage {
         Color color = image.getPixelReader().getColor(8, 8);
         return color.getGreen() > color.getRed() && color.getGreen() > color.getBlue() ? "green"
                 : color.getRed() > color.getBlue() ? "red" : "blue";
+    }
+
+    /**
+     * The frame number drawn in a frame of the clip at natural size : bit {@code n} is a white 10x10 square at
+     * (10 + 14 n, 10), -1 when the image is too small.
+     */
+    private static int frameNumber(javafx.scene.image.Image image) {
+        if (image.getWidth() < 110 || image.getHeight() < 30) {
+            return -1;
+        }
+        int frame = 0;
+        for (int bit = 0; bit < 7; bit++) {
+            Color color = image.getPixelReader().getColor(15 + bit * 14, 15);
+            if (color.getRed() > 0.8 && color.getGreen() > 0.8 && color.getBlue() > 0.8) {
+                frame |= 1 << bit;
+            }
+        }
+        return frame;
     }
 
     private static String size(Bounds bounds) {

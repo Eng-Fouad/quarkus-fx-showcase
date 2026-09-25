@@ -60,6 +60,15 @@ public interface FeaturePage {
     }
 
     /**
+     * {@code true} for a page that shows where the runtime legitimately makes a difference (JVM or native image) :
+     * its images and check values are expected to differ between the runs, and are reported as {@code EXPECTED} by
+     * tools/Compare.java. Failed checks and errors are still reported.
+     */
+    default boolean runtimeDependent() {
+        return false;
+    }
+
+    /**
      * Releases resources (stops media, closes windows, ...) when the page is left.
      */
     default void dispose(Node content) {

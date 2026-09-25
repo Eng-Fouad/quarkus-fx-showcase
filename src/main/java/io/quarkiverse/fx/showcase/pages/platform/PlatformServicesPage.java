@@ -15,6 +15,8 @@ import java.util.stream.Collectors;
 
 import jakarta.inject.Singleton;
 
+import org.jboss.logging.Logger;
+
 import io.quarkiverse.fx.showcase.core.Categories;
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
@@ -57,8 +59,11 @@ import javafx.stage.Screen;
 @Singleton
 public class PlatformServicesPage implements FeaturePage {
 
+    private static final Logger LOG = Logger.getLogger(PlatformServicesPage.class);
+
     private static final String CUSTOM_TEXT = "application/x-quarkus-fx-showcase-text";
     private static final String CUSTOM_BYTES = "application/x-quarkus-fx-showcase-bytes";
+    private static final String RESTORE_CLIPBOARD = PlatformServicesPage.class.getName() + ".restoreClipboard";
 
     /** The families JavaFX always lists, installed fonts or not. */
     private static final Set<String> LOGICAL_FAMILIES = Set.of("System", "Serif", "SansSerif", "Monospaced");
@@ -86,9 +91,19 @@ public class PlatformServicesPage implements FeaturePage {
     @Override
     public Node build() {
         double half = PlatformUi.HALF_WIDTH;
-        VBox left = new VBox(10, clipboard(half), keys(half));
+        VBox clipboard = clipboard(half);
+        VBox left = new VBox(10, clipboard, keys(half));
         VBox right = new VBox(10, screenAndPreferences(half), fontsAndThreads(half));
-        return PlatformUi.page(10, new HBox(12, left, right), preferenceColors());
+        Node page = PlatformUi.page(10, new HBox(12, left, right), preferenceColors());
+        page.getProperties().put(RESTORE_CLIPBOARD, clipboard.getProperties().remove(RESTORE_CLIPBOARD));
+        return page;
+    }
+
+    @Override
+    public void dispose(Node content) {
+        if (content.getProperties().remove(RESTORE_CLIPBOARD) instanceof Runnable restore) {
+            restore.run();
+        }
     }
 
     /**
@@ -146,78 +161,86 @@ public class PlatformServicesPage implements FeaturePage {
         String saved = savedText(clipboard, checks);
         DataFormat customText = format(CUSTOM_TEXT);
         DataFormat customBytes = format(CUSTOM_BYTES);
-        try {
-            ClipboardContent content = new ClipboardContent();
-            content.putString("Quarkus FX clipboard");
-            content.putHtml("<b>bold</b> and <i>italic</i>");
-            content.putUrl("https://quarkus.io/");
-            content.putImage(original);
-            content.put(customText, "custom payload ✓");
-            content.put(customBytes, ByteBuffer.wrap("raw bytes".getBytes(StandardCharsets.UTF_8)));
-            // the system clipboard is native (and shared with other processes) : the round trips are only failures on
-            // macOS, where they were verified (see PlatformUi.expectOnMac)
-            checks.add(PlatformUi.expectOnMac("setContent (6 formats)", true, () -> clipboard.setContent(content)));
-            checks.add(PlatformUi.expectOnMac("getString()", "Quarkus FX clipboard", clipboard::getString));
-            checks.add(PlatformUi.expectOnMac("getHtml()", "<b>bold</b> and <i>italic</i>", clipboard::getHtml));
-            checks.add(PlatformUi.expectOnMac("getUrl()", "https://quarkus.io/", clipboard::getUrl));
-            checks.add(PlatformUi.runOnMac("getImage() round trip", () -> {
-                Image image = clipboard.getImage();
-                if (image == null) {
-                    throw new IllegalStateException("no image read back");
-                }
-                readBack.setImage(image);
-                return (int) image.getWidth() + "x" + (int) image.getHeight() + ", identical pixels "
-                        + identicalPixels(original, image) + "/" + (int) (original.getWidth() * original.getHeight());
-            }));
-            checks.add(PlatformUi.expectOnMac("custom DataFormat (serialized String)", "custom payload ✓",
-                    () -> clipboard.getContent(customText)));
-            checks.add(PlatformUi.expectOnMac("custom DataFormat (ByteBuffer)", "raw bytes", () -> {
-                Object value = clipboard.getContent(customBytes);
-                if (value instanceof ByteBuffer buffer) {
-                    byte[] bytes = new byte[buffer.remaining()];
-                    buffer.get(bytes);
-                    return new String(bytes, StandardCharsets.UTF_8);
-                }
-                return String.valueOf(value);
-            }));
-            checks.add(PlatformUi.expectOnMac("hasContent / content types", "string html url image custom-text custom-bytes", () -> {
-                Set<DataFormat> types = clipboard.getContentTypes();
-                List<String> present = new ArrayList<>();
-                Map<String, DataFormat> expected = new java.util.LinkedHashMap<>();
-                expected.put("string", DataFormat.PLAIN_TEXT);
-                expected.put("html", DataFormat.HTML);
-                expected.put("url", DataFormat.URL);
-                expected.put("image", DataFormat.IMAGE);
-                expected.put("custom-text", customText);
-                expected.put("custom-bytes", customBytes);
-                expected.forEach((name, format) -> {
-                    if (clipboard.hasContent(format) && types.contains(format)) {
-                        present.add(name);
-                    }
-                });
-                return String.join(" ", present);
-            }));
-        } finally {
-            // give the user back the text that was on the clipboard
-            try {
-                if (saved != null) {
-                    ClipboardContent restore = new ClipboardContent();
-                    restore.putString(saved);
-                    clipboard.setContent(restore);
-                } else {
-                    clipboard.clear();
-                }
-            } catch (Throwable t) {
-                checks.add(Check.info("restore the clipboard text", Checks.describe(t)));
+        ClipboardContent content = new ClipboardContent();
+        content.putString("Quarkus FX clipboard");
+        content.putHtml("<b>bold</b> and <i>italic</i>");
+        content.putUrl("https://quarkus.io/");
+        content.putImage(original);
+        content.put(customText, "custom payload ✓");
+        content.put(customBytes, ByteBuffer.wrap("raw bytes".getBytes(StandardCharsets.UTF_8)));
+        // the system clipboard is native (and shared with other processes) : the round trips are only failures on
+        // macOS, where they were verified (see PlatformUi.expectOnMac)
+        checks.add(PlatformUi.expectOnMac("setContent (6 formats)", true, () -> clipboard.setContent(content)));
+        checks.add(PlatformUi.expectOnMac("getString()", "Quarkus FX clipboard", clipboard::getString));
+        checks.add(PlatformUi.expectOnMac("getHtml()", "<b>bold</b> and <i>italic</i>", clipboard::getHtml));
+        checks.add(PlatformUi.expectOnMac("getUrl()", "https://quarkus.io/", clipboard::getUrl));
+        checks.add(PlatformUi.runOnMac("getImage() round trip", () -> {
+            Image image = clipboard.getImage();
+            if (image == null) {
+                throw new IllegalStateException("no image read back");
             }
-        }
+            readBack.setImage(image);
+            return (int) image.getWidth() + "x" + (int) image.getHeight() + ", identical pixels "
+                    + identicalPixels(original, image) + "/" + (int) (original.getWidth() * original.getHeight());
+        }));
+        checks.add(PlatformUi.expectOnMac("custom DataFormat (serialized String)", "custom payload ✓",
+                () -> clipboard.getContent(customText)));
+        checks.add(PlatformUi.expectOnMac("custom DataFormat (ByteBuffer)", "raw bytes", () -> {
+            Object value = clipboard.getContent(customBytes);
+            if (value instanceof ByteBuffer buffer) {
+                byte[] bytes = new byte[buffer.remaining()];
+                buffer.get(bytes);
+                return new String(bytes, StandardCharsets.UTF_8);
+            }
+            return String.valueOf(value);
+        }));
+        checks.add(PlatformUi.expectOnMac("hasContent / content types", "string html url image custom-text custom-bytes", () -> {
+            Set<DataFormat> types = clipboard.getContentTypes();
+            List<String> present = new ArrayList<>();
+            Map<String, DataFormat> expected = new java.util.LinkedHashMap<>();
+            expected.put("string", DataFormat.PLAIN_TEXT);
+            expected.put("html", DataFormat.HTML);
+            expected.put("url", DataFormat.URL);
+            expected.put("image", DataFormat.IMAGE);
+            expected.put("custom-text", customText);
+            expected.put("custom-bytes", customBytes);
+            expected.forEach((name, format) -> {
+                if (clipboard.hasContent(format) && types.contains(format)) {
+                    present.add(name);
+                }
+            });
+            return String.join(" ", present);
+        }));
 
         ImageView originalView = new ImageView(original);
         HBox images = new HBox(8, labelled("put", originalView), new Label("→"), labelled("read back", readBack));
         images.setAlignment(Pos.CENTER_LEFT);
         VBox box = PlatformUi.demo("Clipboard.getSystemClipboard() : put 6 formats, read them back (text restored)",
                 images, PlatformUi.checks(null, checks, 190, width - 18));
+        box.getProperties().put(RESTORE_CLIPBOARD, (Runnable) () -> restoreClipboard(clipboard, saved));
         return PlatformUi.width(box, width);
+    }
+
+    /**
+     * Gives the user back the text that was on the clipboard, once the page is left ({@link #dispose(Node)}) rather
+     * than right after the 6 formats were read back. Other processes read new clipboard content as soon as it is
+     * published (e.g. the Windows clipboard history, which renders every format) : on Windows, when such a request
+     * reaches the content after it was replaced, JavaFX gets no data for the format and crashes the process in
+     * GlassClipboard.cpp (GetArrayLength of a null array : OLE_CHECK_NOTNULL does not stop in release builds), in JVM
+     * and native mode alike. Keeping the content for the lifetime of the page lets those readers complete first.
+     */
+    private static void restoreClipboard(Clipboard clipboard, String saved) {
+        try {
+            if (saved != null) {
+                ClipboardContent restore = new ClipboardContent();
+                restore.putString(saved);
+                clipboard.setContent(restore);
+            } else {
+                clipboard.clear();
+            }
+        } catch (Throwable t) {
+            LOG.warnf(t, "Unable to restore the clipboard text");
+        }
     }
 
     /**

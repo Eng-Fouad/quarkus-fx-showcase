@@ -201,7 +201,10 @@ public class ImagesCanvasPage implements FeaturePage {
             gc.setLineWidth(1);
             gc.strokeLine(0, 48.5, W, 48.5);
             gc.setFill(Color.BLACK);
-            gc.setFont(Font.font("System", 11));
+            // a size no label of the showcase uses : JavaFX caches text layouts by text and font, and a Label laid out
+            // with Modena's centered bounds (-fx-bounds-type: LOGICAL_VERTICAL_CENTER) leaves runs whose metrics move
+            // the canvas text drawn with the same text and font (PrismTextLayout), depending on what is still cached
+            gc.setFont(Font.font("System", 11.5));
             VPos[] positions = { VPos.TOP, VPos.CENTER, VPos.BASELINE, VPos.BOTTOM };
             String[] names = { "Top", "Center", "Base", "Bottom" };
             double[] xs = { 2, 30, 74, 106 };
@@ -405,9 +408,11 @@ public class ImagesCanvasPage implements FeaturePage {
 
         canvases.put("getPixelWriter()", draw(gc -> {
             PixelWriter writer = gc.getPixelWriter();
+            // 4x4 pixel blocks of the same color : the pixel read back below is inside a block, so that the canvas
+            // resampled at a fractional output scale (e.g. 150%) still shows its exact color
             for (int y = 0; y < 80; y++) {
                 for (int x = 0; x < 64; x++) {
-                    writer.setArgb(6 + x, 8 + y, 0xFF000000 | (x * 4 << 16) | (y * 3 << 8) | 0x80);
+                    writer.setArgb(6 + x, 8 + y, 0xFF000000 | (x / 4 * 16 << 16) | (y / 4 * 12 << 8) | 0x80);
                 }
             }
             int[] block = new int[60 * 60];
@@ -536,7 +541,7 @@ public class ImagesCanvasPage implements FeaturePage {
             all.add(Checks.expect("rect/roundRect/oval, PixelWriter pixels",
                     "#FF42A5F5 #FF66BB6A #FFFFA726 / #FF000080 #FFFFFFFF #FF7B1FA2",
                     () -> argb(shapes, 28, 23) + " " + argb(shapes, 76, 23) + " " + argb(shapes, 124, 23) + " / "
-                            + argb(pixels, 6, 8) + " " + argb(pixels, 85, 21) + " " + argb(pixels, 91, 21)));
+                            + argb(pixels, 8, 10) + " " + argb(pixels, 85, 21) + " " + argb(pixels, 91, 21)));
             all.add(Checks.expect("MULTIPLY C×M, C×M×Y / SCREEN R+G, RGB", "#FF0000FF, #FF000000, #FFFFFF00, #FFFFFFFF",
                     () -> argb(blend, 33, 24) + ", " + argb(blend, 35, 40) + ", " + argb(blend, 109, 24) + ", "
                             + argb(blend, 111, 40)));

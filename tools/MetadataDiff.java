@@ -20,7 +20,7 @@ import java.util.stream.Stream;
 
 /**
  * Diffs the reachability metadata recorded by the GraalVM tracing agent (JVM run of the showcase) against what the
- * quarkus-fx extension registers for macOS.
+ * quarkus-fx extension registers for a platform (the common lists and the lists of that platform).
  * <p>
  * usage: java tools/MetadataDiff.java reachability-metadata.json [platform, default: current] [javafx.version=25.0.4]
  */

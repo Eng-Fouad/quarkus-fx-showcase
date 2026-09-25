@@ -25,13 +25,15 @@ import javafx.scene.web.WebView;
  * WebEngine.load of a classpath URL (with relative sub-resources) and of a data: URL, a user style sheet given as a
  * data: URL, WebView zoom and font scale, JavaScript UI callbacks (alert, confirm, prompt) and a WebEngine without
  * WebView with JavaScript disabled.
+ * <p>
+ * A user style sheet given as a classpath URL is only accepted in JVM mode : see
+ * {@link io.quarkiverse.fx.showcase.pages.platform.PlatformNativeLimitsPage}.
  */
 @Singleton
 public class WebLoadingPage implements FeaturePage {
 
     private static final String STATE = WebLoadingPage.class.getName();
     private static final String CLASSPATH_PAGE = "/showcase/web/loaded.html";
-    private static final String CLASSPATH_CSS = "/showcase/web/loaded.css";
     private static final String STYLESHEET = "/showcase/web/web-loading.css";
 
     private static final String DATA_PAGE = """
@@ -150,19 +152,16 @@ public class WebLoadingPage implements FeaturePage {
         final Loaded zoomed = new Loaded(245, 280);
         final Loaded callbacks = new Loaded(1028, 40);
         final Loaded headless = new Loaded();
-        /** A WebEngine without WebView, with a user style sheet given as a classpath URL. */
-        final Loaded classpathStyle = new Loaded();
         final List<String> alerts = new ArrayList<>();
         final List<String> confirms = new ArrayList<>();
         final List<String> prompts = new ArrayList<>();
         final VBox loadChecks = new VBox();
         final VBox styleChecks = new VBox();
         String styleSheetError;
-        String classpathStyleError;
         CompletionStage<?> ready;
 
         List<Loaded> all() {
-            return List.of(classpath, data, styled, zoomed, callbacks, headless, classpathStyle);
+            return List.of(classpath, data, styled, zoomed, callbacks, headless);
         }
     }
 
@@ -176,12 +175,6 @@ public class WebLoadingPage implements FeaturePage {
             state.styled.engine.setUserStyleSheetLocation(styleUrl);
         } catch (Throwable t) {
             state.styleSheetError = Checks.describe(t);
-        }
-        try {
-            // jar: in JVM mode, resource: in a native image
-            state.classpathStyle.engine.setUserStyleSheetLocation(Fx.resourceUrl(CLASSPATH_CSS));
-        } catch (Throwable t) {
-            state.classpathStyleError = Checks.describe(t);
         }
         // zoom, font scale and font smoothing set by the page style sheet (WebView CSS properties)
         state.zoomed.view.getStyleClass().add("zoomed-view");
@@ -204,7 +197,6 @@ public class WebLoadingPage implements FeaturePage {
         state.zoomed.engine.load(dataUrl);
         callbacks.loadContent(CALLBACKS_PAGE);
         state.headless.engine.load(Fx.resourceUrl(CLASSPATH_PAGE));
-        state.classpathStyle.engine.loadContent("<html><body><h1>Styled from the classpath</h1></body></html>");
 
         HBox views = new HBox(16,
                 column("load(classpath URL of loaded.html)", state.classpath.view),
@@ -279,12 +271,6 @@ public class WebLoadingPage implements FeaturePage {
         load.add(Check.of("WebEngine without WebView: load", headless.ok(), headless.outcome));
         load.add(Checks.expect("JavaScript disabled: DOM text", "loaded.js did not run",
                 () -> headless.engine.getDocument().getElementById("script-out").getTextContent()));
-
-        Loaded classpathStyle = state.classpathStyle;
-        load.add(state.classpathStyleError != null
-                ? Check.fail("setUserStyleSheetLocation(classpath URL)", state.classpathStyleError)
-                : Checks.expect("setUserStyleSheetLocation(classpath URL)", "rgb(46, 125, 50)",
-                        () -> script(classpathStyle, "getComputedStyle(document.querySelector('h1')).color")));
 
         List<Check> style = new ArrayList<>();
         Loaded styled = state.styled;

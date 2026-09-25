@@ -24,7 +24,7 @@ import javafx.scene.web.WebEngine;
 /**
  * Helpers shared by the web pages.
  */
-final class WebSupport {
+public final class WebSupport {
 
     private WebSupport() {
     }
@@ -64,7 +64,7 @@ final class WebSupport {
      * Completes (on the Fx thread) once snapshots of {@code node}, taken every 4 pulses, were identical 3 times in a
      * row : asynchronous painting (WebKit, image decoding) is then over. Never fails : a timeout only ends the wait.
      */
-    static CompletionStage<Void> stable(Node node, double timeoutMillis) {
+    public static CompletionStage<Void> stable(Node node, double timeoutMillis) {
         int[] previous = { 0 };
         int[] identical = { 0 };
         int[] pulses = { 0 };
@@ -87,7 +87,7 @@ final class WebSupport {
     /**
      * Completes with the final state of the current load of {@code engine} (SUCCEEDED, FAILED or CANCELLED).
      */
-    static CompletionStage<Worker.State> loaded(WebEngine engine, double timeoutMillis) {
+    public static CompletionStage<Worker.State> loaded(WebEngine engine, double timeoutMillis) {
         return Fx.timeout(Fx.when(engine.getLoadWorker().stateProperty(),
                 state -> state == Worker.State.SUCCEEDED || state == Worker.State.FAILED
                         || state == Worker.State.CANCELLED),
@@ -97,7 +97,7 @@ final class WebSupport {
     /**
      * Description of the outcome of a load : {@code SUCCEEDED}, or the state with the exception.
      */
-    static String outcome(WebEngine engine, Worker.State state, Throwable error) {
+    public static String outcome(WebEngine engine, Worker.State state, Throwable error) {
         if (error != null) {
             return Checks.describe(unwrap(error));
         }
@@ -112,7 +112,7 @@ final class WebSupport {
         return error;
     }
 
-    static byte[] resourceBytes(String path) {
+    public static byte[] resourceBytes(String path) {
         try (InputStream in = Fx.resource(path).openStream()) {
             return in.readAllBytes();
         } catch (IOException e) {
@@ -120,7 +120,7 @@ final class WebSupport {
         }
     }
 
-    static String base64(byte[] bytes) {
+    public static String base64(byte[] bytes) {
         return Base64.getEncoder().encodeToString(bytes);
     }
 
@@ -128,7 +128,7 @@ final class WebSupport {
         return base64(text.getBytes(StandardCharsets.UTF_8));
     }
 
-    static Label caption(String text) {
+    public static Label caption(String text) {
         Label label = new Label(text);
         label.setStyle("-fx-font-size: 11px; -fx-text-fill: #52606d; -fx-font-weight: bold;");
         return label;
