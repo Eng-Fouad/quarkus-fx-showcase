@@ -69,7 +69,9 @@ public class Cycle {
                 options.add(0, "-agentlib:native-image-agent=config-output-dir=" + metadata);
                 Snapshot.run("jvm", "trace-" + label, null, options, 900);
                 Path diff = Path.of("comparison", "trace-" + label, "metadata-diff.md");
-                java(diff, "tools/MetadataDiff.java", metadata.resolve("reachability-metadata.json").toString());
+                // the application depends on Quarkus Desktop : the AWT_ and SWING_ lists of quarkus-fx apply
+                java(diff, "tools/MetadataDiff.java", metadata.resolve("reachability-metadata.json").toString(),
+                        "--desktop");
                 Files.readAllLines(diff).stream().filter(l -> l.startsWith("## ")).forEach(System.out::println);
             }
         }
