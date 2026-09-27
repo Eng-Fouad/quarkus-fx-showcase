@@ -2,7 +2,10 @@ package io.quarkiverse.fx.showcase.pages.platform;
 
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -23,6 +26,7 @@ import io.quarkiverse.fx.showcase.core.Categories;
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
+import javafx.fxml.FXMLLoader;
 import javafx.geometry.Pos;
 import javafx.print.JobSettings;
 import javafx.print.PageLayout;
@@ -219,6 +223,8 @@ public class PlatformPrintingPage implements FeaturePage {
         printed.setSmooth(true);
         checks.add(Checks.expect("DialogOwner(long) from native code", "DialogOwner",
                 PlatformPrintingPage::dialogOwner));
+        checks.add(Checks.expect("FXML: Paper fx:constant, $paper.name", "A4 / A4",
+                PlatformPrintingPage::fxmlPaper));
 
         VBox right = new VBox(10, PlatformUi.checks("Printing checks", checks, 200, half),
                 PlatformUi.demo("J2D print pipeline (PrismPrintGraphics) into a BufferedImage, shown at 75 %",
@@ -264,6 +270,24 @@ public class PlatformPrintingPage implements FeaturePage {
         fx.getPixelWriter().setPixels(0, 0, PRINTED_WIDTH, PRINTED_HEIGHT, PixelFormat.getIntArgbInstance(),
                 image.getRGB(0, 0, PRINTED_WIDTH, PRINTED_HEIGHT, null, 0, PRINTED_WIDTH), 0, PRINTED_WIDTH);
         return fx;
+    }
+
+    /**
+     * FXML using javafx.print : FXMLLoader reads the constant and the property of Paper reflectively.
+     */
+    private static String fxmlPaper() throws IOException {
+        String fxml = """
+                <?import javafx.print.Paper?>
+                <?import javafx.scene.control.Label?>
+                <Label xmlns:fx="http://javafx.com/fxml" text="$paper.name">
+                    <fx:define>
+                        <Paper fx:id="paper" fx:constant="A4"/>
+                    </fx:define>
+                </Label>
+                """;
+        FXMLLoader loader = new FXMLLoader();
+        Label label = loader.load(new ByteArrayInputStream(fxml.getBytes(StandardCharsets.UTF_8)));
+        return ((Paper) loader.getNamespace().get("paper")).getName() + " / " + label.getText();
     }
 
     /** Pixels darker than mid gray in the given area. */
