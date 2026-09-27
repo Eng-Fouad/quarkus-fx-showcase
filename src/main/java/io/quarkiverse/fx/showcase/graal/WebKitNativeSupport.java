@@ -17,8 +17,12 @@ import io.quarkus.runtime.ImageMode;
 
 /**
  * On macOS, libjfxwebkit.dylib links to libjvm.dylib (through @loader_path) without using any of its symbols. There is no
- * libjvm.dylib next to a native executable, so WebKit fails to load and WebView cannot be used. An empty libjvm.dylib is
- * installed in the directory where JavaFX extracts its native libraries (NativeLibLoader.cacheLibrary).
+ * libjvm.dylib next to a native executable without AWT, so WebKit fails to load and WebView cannot be used. A
+ * libjvm.dylib is installed in the directory where JavaFX extracts its native libraries (NativeLibLoader.cacheLibrary) :
+ * an empty one, or, with Quarkus Desktop, a copy of the libjvm.dylib that GraalVM generates next to the executable for
+ * the AWT libraries. Both have the install name {@code @rpath/libjvm.dylib}, and dyld uses the first one loaded for
+ * every library linked to it : with the empty one loaded first (a WebView shown before AWT starts), libawt.dylib found
+ * none of the JVM_ functions it imports and the process crashed in its JNI_OnLoad.
  */
 @Singleton
 public class WebKitNativeSupport {
@@ -35,10 +39,22 @@ public class WebKitNativeSupport {
             cacheDir = System.getProperty("user.home") + "/.openjfx/cache/" + version + "/" + System.getProperty("os.arch");
         }
         Path stub = Path.of(cacheDir, "libjvm.dylib");
-        try (InputStream in = WebKitNativeSupport.class.getResourceAsStream("/showcase/native/libjvm.dylib")) {
-            if (in != null && !Files.exists(stub)) {
-                Files.createDirectories(stub.getParent());
-                Files.copy(in, stub, StandardCopyOption.REPLACE_EXISTING);
+        Path shim = ProcessHandle.current().info().command().map(Path::of).map(Path::getParent)
+                .map(directory -> directory.resolve("libjvm.dylib")).filter(Files::isRegularFile).orElse(null);
+        try {
+            if (shim != null) {
+                // Quarkus Desktop : the libjvm.dylib of the AWT libraries, replacing an empty one
+                if (!Files.exists(stub) || Files.mismatch(shim, stub) != -1) {
+                    Files.createDirectories(stub.getParent());
+                    Files.copy(shim, stub, StandardCopyOption.REPLACE_EXISTING);
+                }
+                return;
+            }
+            try (InputStream in = WebKitNativeSupport.class.getResourceAsStream("/showcase/native/libjvm.dylib")) {
+                if (in != null && !Files.exists(stub)) {
+                    Files.createDirectories(stub.getParent());
+                    Files.copy(in, stub, StandardCopyOption.REPLACE_EXISTING);
+                }
             }
         } catch (IOException e) {
             LOG.warnf(e, "Unable to install %s : WebView will not be available", stub);
