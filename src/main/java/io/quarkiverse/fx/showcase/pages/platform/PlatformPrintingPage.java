@@ -236,7 +236,11 @@ public class PlatformPrintingPage implements FeaturePage {
      * BufferedImage : nothing is printed.
      */
     private static WritableImage printWithJ2D(List<Check> checks) {
-        Node document = sampleDocument();
+        // with text of other scripts and an emoji, drawn with fallback fonts (J2DFontFactory.getCompositeFont)
+        Text fallback = new Text(12, 284, "Fallback: 日本語 العربية Ελληνικά 🖨");
+        fallback.setFont(Font.font("System", 14));
+        fallback.setFill(Color.web("#37474f"));
+        Node document = new Group(sampleDocument(), fallback);
         Group root = new Group(document);
         new Scene(root);
         // CSS, layout and synchronization of the peers, as J2DPrinterJob does before printing
