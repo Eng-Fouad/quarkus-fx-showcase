@@ -28,13 +28,25 @@ import javax.imageio.ImageIO;
  * The images and check values of a page flagged {@code runtimeDependent} in the reports (a page showing where the JVM
  * and a native image legitimately differ) are reported as EXPECTED when they differ : they are not mismatches, but
  * failed checks and errors of such a page still are.
+ * <p>
+ * Where an image differs is in summary.txt, readable without the images : the bounding box {@code (x,y) wxh} of the
+ * differing pixels and the regions they form (see {@link Regions}). Images of different sizes (SIZE) are compared on
+ * their common area, from the top left corner.
  */
 public class Compare {
 
     static final int NOISE_MAX_DELTA = 2;
     static final double NOISE_MAX_RATIO = 0.005;
+    /** The side of the grid cells of the regions, in pixels (see {@link Regions}) */
+    static final int REGION_CELL = 16;
+    static final int MAX_REGIONS = 3;
 
-    record ImageResult(String file, String status, long differing, long total, int maxDelta, String diffFile) {
+    /**
+     * An image compared : {@code differing}, {@code total} and {@code where} are about the common area of images of
+     * different sizes.
+     */
+    record ImageResult(String file, String status, long differing, long total, int maxDelta, String diffFile,
+            String where) {
     }
 
     public static void main(String[] args) throws Exception {
@@ -68,7 +80,7 @@ public class Compare {
         for (String name : names) {
             ImageResult r = compareImage(a.resolve(name), b.resolve(name), out, name, tolerance);
             if (!r.status.equals("IDENTICAL") && !r.status.equals("NOISE") && runtimeDependent.contains(pageId(name))) {
-                r = new ImageResult(r.file, "EXPECTED", r.differing, r.total, r.maxDelta, r.diffFile);
+                r = new ImageResult(r.file, "EXPECTED", r.differing, r.total, r.maxDelta, r.diffFile, r.where);
             }
             images.add(r);
         }
@@ -88,15 +100,16 @@ public class Compare {
             }
         }
         lines.add("");
-        lines.add("== Images (tolerance " + tolerance + ")");
+        lines.add("== Images (tolerance " + tolerance + " ; box (x,y) wxh : the bounding box of the differing pixels ; "
+                + "region : the differing pixels of touching cells (sides or corners) of a " + REGION_CELL
+                + " px grid)");
         for (ImageResult r : images) {
             if (r.status.equals("EXPECTED")) {
                 expectedPages.add(pageId(r.file));
             } else if (!r.status.equals("IDENTICAL") && !r.status.equals("NOISE")) {
                 mismatches++;
             }
-            lines.add(String.format("%-10s %-60s %s", r.status, r.file,
-                    r.total > 0 && r.differing > 0 ? String.format("%d px (%.3f%%), max delta %d", r.differing, 100.0 * r.differing / r.total, r.maxDelta) : ""));
+            lines.add(String.format("%-10s %-60s %s", r.status, r.file, describe(r)));
         }
 
         lines.add("");
@@ -193,22 +206,38 @@ public class Compare {
         }
     }
 
+    /**
+     * The differing pixels of an image and where they are, e.g.
+     * {@code 44 px (0.003%), max delta 194, box (1210,12) 180x40, 1 region}, on the common area of images of different
+     * sizes.
+     */
+    static String describe(ImageResult r) {
+        String pixels = r.differing == 0 ? "" : String.format("%d px (%.3f%%), max delta %d, %s", r.differing,
+                100.0 * r.differing / r.total, r.maxDelta, r.where);
+        if (r.file.contains(" (") && r.total > 0) {
+            return "common area " + (r.differing == 0 ? "identical" : ": " + pixels);
+        }
+        return pixels;
+    }
+
     static ImageResult compareImage(Path fa, Path fb, Path out, String name, int tolerance) throws IOException {
         if (!Files.exists(fa)) {
-            return new ImageResult(name, "ONLY_B", 0, 0, 0, null);
+            return new ImageResult(name, "ONLY_B", 0, 0, 0, null, "");
         }
         if (!Files.exists(fb)) {
-            return new ImageResult(name, "ONLY_A", 0, 0, 0, null);
+            return new ImageResult(name, "ONLY_A", 0, 0, 0, null, "");
         }
         BufferedImage ia = ImageIO.read(fa.toFile());
         BufferedImage ib = ImageIO.read(fb.toFile());
-        if (ia.getWidth() != ib.getWidth() || ia.getHeight() != ib.getHeight()) {
-            return new ImageResult(name + " (" + ia.getWidth() + "x" + ia.getHeight() + " vs " + ib.getWidth() + "x"
-                    + ib.getHeight() + ")", "SIZE", 0, 0, 0, null);
-        }
-        int w = ia.getWidth();
-        int h = ia.getHeight();
+        boolean sameSize = ia.getWidth() == ib.getWidth() && ia.getHeight() == ib.getHeight();
+        String file = sameSize ? name
+                : name + " (" + ia.getWidth() + "x" + ia.getHeight() + " vs " + ib.getWidth() + "x" + ib.getHeight()
+                        + ")";
+        // images of different sizes : their common area, from the top left corner
+        int w = Math.min(ia.getWidth(), ib.getWidth());
+        int h = Math.min(ia.getHeight(), ib.getHeight());
         BufferedImage diff = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Regions regions = new Regions(w, h);
         long differing = 0;
         int maxDelta = 0;
         for (int y = 0; y < h; y++) {
@@ -224,6 +253,7 @@ public class Compare {
                 if (delta > tolerance) {
                     differing++;
                     maxDelta = Math.max(maxDelta, delta);
+                    regions.add(x, y);
                     int red = 128 + Math.min(127, delta);
                     diff.setRGB(x, y, (red << 16));
                 } else {
@@ -232,12 +262,120 @@ public class Compare {
             }
         }
         if (differing == 0) {
-            return new ImageResult(name, "IDENTICAL", 0, (long) w * h, 0, null);
+            return new ImageResult(file, sameSize ? "IDENTICAL" : "SIZE", 0, (long) w * h, 0, null, "");
         }
         String diffFile = "diff-" + name;
         ImageIO.write(diff, "png", out.resolve(diffFile).toFile());
         boolean noise = maxDelta <= NOISE_MAX_DELTA && differing < NOISE_MAX_RATIO * w * h;
-        return new ImageResult(name, noise ? "NOISE" : "DIFFERENT", differing, (long) w * h, maxDelta, diffFile);
+        String status = !sameSize ? "SIZE" : noise ? "NOISE" : "DIFFERENT";
+        return new ImageResult(file, status, differing, (long) w * h, maxDelta, diffFile, regions.describe());
+    }
+
+    /**
+     * Where the differing pixels of an image are : their bounding box and the regions they form. The image is divided
+     * in square cells of {@link #REGION_CELL} pixels : the differing pixels of touching cells (sides or corners) belong
+     * to the same region. Pixels at most {@link #REGION_CELL} pixels apart (horizontally and vertically) always do,
+     * pixels less than twice as far apart do when their cells touch.
+     */
+    static final class Regions {
+        private final int columns;
+        private final int rows;
+        // per cell : the number of differing pixels and their bounding box
+        private final int[] count;
+        private final int[] minX;
+        private final int[] minY;
+        private final int[] maxX;
+        private final int[] maxY;
+
+        Regions(int width, int height) {
+            columns = (width + REGION_CELL - 1) / REGION_CELL;
+            rows = (height + REGION_CELL - 1) / REGION_CELL;
+            count = new int[columns * rows];
+            minX = new int[count.length];
+            minY = new int[count.length];
+            maxX = new int[count.length];
+            maxY = new int[count.length];
+        }
+
+        void add(int x, int y) {
+            int cell = (y / REGION_CELL) * columns + x / REGION_CELL;
+            if (count[cell]++ == 0) {
+                minX[cell] = maxX[cell] = x;
+                minY[cell] = maxY[cell] = y;
+            } else {
+                minX[cell] = Math.min(minX[cell], x);
+                minY[cell] = Math.min(minY[cell], y);
+                maxX[cell] = Math.max(maxX[cell], x);
+                maxY[cell] = Math.max(maxY[cell], y);
+            }
+        }
+
+        /**
+         * {@code box (x,y) wxh, n regions : (x,y) wxh p px ; ...} with the {@link #MAX_REGIONS} largest regions, empty
+         * without differing pixels.
+         */
+        String describe() {
+            // the regions (x0, y0, x1, y1, pixels) : the touching cells with differing pixels, by a depth first search
+            List<int[]> regions = new ArrayList<>();
+            boolean[] seen = new boolean[count.length];
+            int[] stack = new int[count.length];
+            for (int start = 0; start < count.length; start++) {
+                if (count[start] == 0 || seen[start]) {
+                    continue;
+                }
+                int[] region = { Integer.MAX_VALUE, Integer.MAX_VALUE, -1, -1, 0 };
+                regions.add(region);
+                int top = 0;
+                stack[top++] = start;
+                seen[start] = true;
+                while (top > 0) {
+                    int cell = stack[--top];
+                    region[0] = Math.min(region[0], minX[cell]);
+                    region[1] = Math.min(region[1], minY[cell]);
+                    region[2] = Math.max(region[2], maxX[cell]);
+                    region[3] = Math.max(region[3], maxY[cell]);
+                    region[4] += count[cell];
+                    int column = cell % columns;
+                    int row = cell / columns;
+                    for (int r = Math.max(0, row - 1); r <= Math.min(rows - 1, row + 1); r++) {
+                        for (int c = Math.max(0, column - 1); c <= Math.min(columns - 1, column + 1); c++) {
+                            int next = r * columns + c;
+                            if (count[next] > 0 && !seen[next]) {
+                                seen[next] = true;
+                                stack[top++] = next;
+                            }
+                        }
+                    }
+                }
+            }
+            if (regions.isEmpty()) {
+                return "";
+            }
+            int[] all = { Integer.MAX_VALUE, Integer.MAX_VALUE, -1, -1, 0 };
+            for (int[] region : regions) {
+                all[0] = Math.min(all[0], region[0]);
+                all[1] = Math.min(all[1], region[1]);
+                all[2] = Math.max(all[2], region[2]);
+                all[3] = Math.max(all[3], region[3]);
+            }
+            StringBuilder where = new StringBuilder("box ").append(box(all)).append(", ").append(regions.size())
+                    .append(regions.size() == 1 ? " region" : " regions");
+            if (regions.size() > 1) {
+                // the largest first, then from the top left (a stable sort of the regions found row by row)
+                regions.sort((a, b) -> Integer.compare(b[4], a[4]));
+                where.append(regions.size() > MAX_REGIONS ? ", the " + MAX_REGIONS + " largest : " : " : ");
+                for (int i = 0; i < Math.min(MAX_REGIONS, regions.size()); i++) {
+                    where.append(i > 0 ? " ; " : "").append(box(regions.get(i))).append(' ').append(regions.get(i)[4])
+                            .append(" px");
+                }
+            }
+            return where.toString();
+        }
+
+        static String box(int[] region) {
+            return "(" + region[0] + "," + region[1] + ") " + (region[2] - region[0] + 1) + "x"
+                    + (region[3] - region[1] + 1);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -287,12 +425,14 @@ public class Compare {
         html.append("<h1>").append(esc(verdict)).append("</h1>");
         html.append("<p>A: ").append(esc(a.toString())).append(" (").append(esc(String.valueOf(ra.get("runtime"))))
                 .append(") &mdash; B: ").append(esc(b.toString())).append(" (").append(esc(String.valueOf(rb.get("runtime"))))
-                .append(")</p><table><tr><th>image</th><th>status</th><th>differing pixels</th><th>max delta</th></tr>");
+                .append(")</p><table><tr><th>image</th><th>status</th><th>differing pixels</th><th>max delta</th>")
+                .append("<th>where</th></tr>");
         for (ImageResult r : images) {
             html.append("<tr><td><a href='#").append(esc(r.file)).append("'>").append(esc(r.file)).append("</a></td><td class='")
                     .append(r.status).append("'>").append(r.status).append("</td><td>")
                     .append(r.total == 0 ? "" : r.differing + String.format(" (%.3f%%)", 100.0 * r.differing / r.total))
-                    .append("</td><td>").append(r.maxDelta).append("</td></tr>");
+                    .append("</td><td>").append(r.maxDelta).append("</td><td>").append(esc(r.where))
+                    .append("</td></tr>");
         }
         html.append("</table>");
         if (!pageNotes.isEmpty()) {

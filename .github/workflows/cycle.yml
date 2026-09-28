@@ -178,7 +178,8 @@ jobs:
             java tools/Cycle.java "$LABEL" "--maven-args=-Dquarkus.platform.version=$QUARKUS_VERSION" $ARGS \
             2>&1 | tee cycle.log
 
-      # The verdict and what differs, in the summary of the run and as annotations
+      # The verdict and what differs, in the summary of the run and as annotations ; in the log of this step, what the
+      # artifacts would tell (the checks and errors, where the images differ, the control, the exceptions of the runs)
       - name: Report
         if: always()
         run: if [ -f showcase/.github/scripts/cycle-report.sh ]; then bash showcase/.github/scripts/cycle-report.sh; fi
@@ -225,7 +226,8 @@ jobs:
           overwrite: true
           retention-days: 14
 
-      # The images of both runs (index.html of the diff directory shows them side by side)
+      # The images of the runs (index.html of the diff directory shows them side by side, control/index.html the JVM and
+      # the trace ones)
       - name: Upload the images
         if: failure()
         uses: actions/upload-artifact@v7
@@ -235,6 +237,7 @@ jobs:
             showcase/comparison/jvm-${{ matrix.label }}
             showcase/comparison/native-${{ matrix.label }}
             showcase/comparison/diff-${{ matrix.label }}
+            showcase/comparison/trace-${{ matrix.label }}/*.png
           if-no-files-found: ignore
           overwrite: true
           retention-days: 7
@@ -380,6 +383,7 @@ jobs:
             showcase/comparison/jvm-${{ matrix.label }}
             showcase/comparison/native-${{ matrix.label }}
             showcase/comparison/diff-${{ matrix.label }}
+            showcase/comparison/trace-${{ matrix.label }}/*.png
           if-no-files-found: ignore
           overwrite: true
           retention-days: 7
@@ -514,6 +518,7 @@ jobs:
             showcase/comparison/jvm-${{ matrix.label }}
             showcase/comparison/native-${{ matrix.label }}
             showcase/comparison/diff-${{ matrix.label }}
+            showcase/comparison/trace-${{ matrix.label }}/*.png
           if-no-files-found: ignore
           overwrite: true
           retention-days: 7

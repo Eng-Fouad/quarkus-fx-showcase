@@ -1,4 +1,6 @@
 import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalTime;
@@ -20,12 +22,24 @@ import java.util.List;
  * native-image heap otherwise). Options for the snapshot runs can be given after {@code --} and apply to both the JVM
  * and the native run.
  * <p>
+ * With --trace, the JVM run is also compared with the trace run, as a control (comparison/diff-&lt;label&gt;/control,
+ * it does not change the exit code) : the line {@code CONTROL jvm vs trace ... : <verdict> ...} after the verdict lists
+ * the images that differ between these two JVM runs, and how many of the images that differ between the JVM and the
+ * native run are among them. A hint, not a proof : the trace run is slower and the agent intercepts JNI and reflection,
+ * so an image that differs in both comparisons suggests timing or non-determinism rather than the native image, and a
+ * page that only sometimes differs between two JVM runs may match in this pair.
+ * <p>
  * Exit code 0 when both runs wrote their report and exited normally and the comparison matches (the runtime dependent
  * pages excepted, see Compare.java) : the last line is then {@code cycle <label> OK}, and {@code cycle <label> FAILED :
  * <reasons>} otherwise, with the exit code 1 (also for a failed build). 2 for invalid arguments (with a usage or an
  * error message).
  */
 public class Cycle {
+
+    static final String CONTROL = "CONTROL jvm vs trace (a hint : a slower JVM run, under the tracing agent) : ";
+    // the output of the Java tools is in the native encoding, not UTF-8 on Windows : the verdicts and the image names
+    // are ASCII, and any byte is a character of ISO-8859-1
+    static final Charset CONSOLE = StandardCharsets.ISO_8859_1;
 
     public static void main(String[] args) throws Exception {
         if (args.length == 0) {
@@ -75,6 +89,8 @@ public class Cycle {
             }
         }
         List<String> failures = new ArrayList<>();
+        // the trace run of this cycle : null without one, its failure otherwise (empty when it succeeded)
+        String traced = null;
 
         Path logs = Path.of("comparison", "logs-" + label);
         Files.createDirectories(logs);
@@ -96,7 +112,8 @@ public class Cycle {
                 Path metadata = Path.of("comparison", "trace-" + label, "metadata");
                 List<String> options = new ArrayList<>(snapshotOptions);
                 options.add(0, "-agentlib:native-image-agent=config-output-dir=" + metadata);
-                Snapshot.run("jvm", "trace-" + label, null, options, 900);
+                traced = Snapshot.run("jvm", "trace-" + label, null, options, 900) == 0 ? ""
+                        : " (the trace run failed : comparison/trace-" + label + "/run.log)";
                 Path diff = Path.of("comparison", "trace-" + label, "metadata-diff.md");
                 java(diff, "tools/MetadataDiff.java", metadata.resolve("reachability-metadata.json").toString());
                 Files.readAllLines(diff).stream().filter(l -> l.startsWith("## ")).forEach(System.out::println);
@@ -134,17 +151,66 @@ public class Cycle {
         Path summary = logs.resolve("compare.txt");
         int compared = java(summary, "tools/Compare.java", "comparison/jvm-" + label, "comparison/native-" + label,
                 "comparison/diff-" + label);
-        List<String> lines = Files.readAllLines(summary);
+        List<String> lines = Files.readAllLines(summary, CONSOLE);
         String verdict = lines.isEmpty() ? "no comparison" : lines.getFirst();
         System.out.println(verdict);
         if (compared != 0) {
             failures.add(verdict.startsWith("MISMATCH") ? "the runs do not match (comparison/diff-" + label + ")" : verdict);
+        }
+        if (traced != null) {
+            // informational : the verdict of the cycle stays the one of the JVM vs native comparison
+            String control;
+            try {
+                control = control(label, lines);
+            } catch (IOException | RuntimeException e) {
+                control = CONTROL + "no comparison, " + e;
+            }
+            System.out.println(control + traced);
         }
 
         if (!failures.isEmpty()) {
             failed(label, failures);
         }
         step("cycle " + label + " OK");
+    }
+
+    /**
+     * The JVM run compared with the trace run : {@code CONTROL ... : <verdict>}, the images that differ between them
+     * (DIFFERENT, SIZE) and the ones of one run only, and how many of the images that differ between the JVM and the
+     * native run differ between them too.
+     */
+    static String control(String label, List<String> compared) throws IOException, InterruptedException {
+        Path out = Path.of("comparison", "diff-" + label, "control");
+        Snapshot.deleteRecursively(out);
+        Path summary = Path.of("comparison", "logs-" + label, "control.txt");
+        java(summary, "tools/Compare.java", "comparison/jvm-" + label, "comparison/trace-" + label, out.toString());
+        List<String> lines = Files.readAllLines(summary, CONSOLE);
+        StringBuilder control = new StringBuilder(CONTROL).append(lines.isEmpty() ? "no comparison" : lines.getFirst());
+        List<String> jvm = images(lines, "DIFFERENT|SIZE");
+        if (!jvm.isEmpty()) {
+            control.append(" ; differing images : ").append(String.join(", ", jvm));
+        }
+        List<String> oneRun = images(lines, "ONLY_A|ONLY_B");
+        if (!oneRun.isEmpty()) {
+            control.append(" ; in one run only : ").append(String.join(", ", oneRun));
+        }
+        List<String> jvmNative = images(compared, "DIFFERENT|SIZE");
+        if (!jvm.isEmpty() && !jvmNative.isEmpty()) {
+            List<String> nativeOnly = jvmNative.stream().filter(image -> !jvm.contains(image)).toList();
+            int both = jvmNative.size() - nativeOnly.size();
+            control.append(" ; ").append(both).append(" of the ").append(jvmNative.size())
+                    .append(" images differing between JVM and native also differ between jvm and trace");
+            if (both > 0 && !nativeOnly.isEmpty()) {
+                control.append(", not ").append(String.join(", ", nativeOnly));
+            }
+        }
+        return control.toString();
+    }
+
+    /** The images of a summary of Compare.java with one of these statuses, e.g. {@code DIFFERENT|SIZE} */
+    static List<String> images(List<String> summary, String statuses) {
+        return summary.stream().filter(line -> line.matches("(" + statuses + ") .*"))
+                .map(line -> line.split("\\s+")[1]).toList();
     }
 
     static void failed(String label, List<String> failures) {

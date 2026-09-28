@@ -51,6 +51,11 @@ native build and snapshots, comparison. Options after `--` are passed to both ru
 `--maven-args=-Dquarkus.platform.version=3.33.3.3,-Dquarkus.native.native-image-xmx=5g`). It exits 1 when a build or a
 run fails or when the runs do not match (its last line: `cycle <label> OK` or `cycle <label> FAILED : ...`).
 
+For each image that differs, `summary.txt` tells where: the bounding box `(x,y) wxh` of the differing pixels and the
+regions they form (the differing pixels of the cells of a 16 px grid that touch by a side or a corner), e.g.
+`box (300,200) 400x150, 1 region`. Images of different sizes (`SIZE`) are compared on their common area, from the top
+left corner.
+
 Pages use `core/Platforms` to pick operating system specific fonts and expectations: snapshots are only compared between
 runs on the same machine, so a page may look different on another operating system, but its checks must pass everywhere.
 
@@ -100,7 +105,11 @@ They exist in JVM mode too, but make runs differ or fail depending on timing:
 
 - `java tools/Cycle.java <label> --trace`: also runs the JVM snapshots under the GraalVM tracing agent, then
   `tools/MetadataDiff.java` lists the JNI, reflection and resource accesses of JavaFX that quarkus-fx does not register
-  for the current platform.
+  for the current platform. The JVM run is also compared with the traced one, as a control
+  (`comparison/diff-<label>/control`, it does not change the exit code): the line `CONTROL jvm vs trace ...` after the
+  verdict lists the images that differ between these two JVM runs and how many of the JVM vs native differences are
+  among them. A hint, not a proof: the traced run is slower and the agent intercepts JNI and reflection, so an image
+  that differs in both suggests timing or non-determinism rather than the native image.
 - `tools/ClinitAudit.java` (with ASM on the class path): lists the JavaFX classes quarkus-fx leaves initialized at build
   time whose static initializer reaches native code, threads, native memory, system properties or resource bundles:
   `java -cp ~/.m2/repository/org/ow2/asm/asm/9.9/asm-9.9.jar tools/ClinitAudit.java`
@@ -130,8 +139,11 @@ matrices from one table of variants: every run has the default variants, and the
 
 There is no Windows-arm64 variant: neither JavaFX nor GraalVM exist for Windows on arm64. `Cycle.java` exits 1 when a
 build or a run fails or when the runs do not match. `.github/scripts/cycle-report.sh` writes the verdict, what differs,
-the screen and the pipeline of the runs to the summary of the run and as an annotation of the job; the logs, reports
-and metadata are artifacts (with the images of both runs when the job failed). `.github/scripts/windows-desktop.ps1`
+the screen and the pipeline of the runs to the summary of the run and as an annotation of the job, and to the log of its
+Report step what the artifacts would tell (the versions, operating system, screen and pipeline of the runs, the checks
+and errors, every image that differs and where, the control line, the distinct exceptions of each `run.log` and how
+often they occur, the last lines of a run that did not exit normally); the logs, reports and metadata are artifacts
+(with the images of the runs, the trace run included, when the job failed). `.github/scripts/windows-desktop.ps1`
 and `macos-desktop.sh` prepare and describe the runner desktops (display mode, screenshots before and after the cycle).
 The platforms that never ran on GitHub are non-blocking (`blocking` in the plan table) until they are reliably green.
 
