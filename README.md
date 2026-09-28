@@ -45,8 +45,11 @@ java tools/Snapshot.java native               # comparison/native
 java tools/Compare.java comparison/jvm comparison/native comparison/diff   # summary.txt and index.html
 ```
 
-`java tools/Cycle.java <label> [--trace] [--offline]` runs a whole iteration: JVM build and snapshots, native build and
-snapshots, comparison. Options after `--` are passed to both runs, e.g. `java tools/Cycle.java sw -- -Dprism.order=sw`.
+`java tools/Cycle.java <label> [--trace] [--offline] [--maven-args=a,b]` runs a whole iteration: JVM build and snapshots,
+native build and snapshots, comparison. Options after `--` are passed to both runs, e.g.
+`java tools/Cycle.java sw -- -Dprism.order=sw`; `--maven-args` to both builds (e.g.
+`--maven-args=-Dquarkus.platform.version=3.33.3.3,-Dquarkus.native.native-image-xmx=5g`). It exits 1 when a build or a
+run fails or when the runs do not match (its last line: `cycle <label> OK` or `cycle <label> FAILED : ...`).
 
 Pages use `core/Platforms` to pick operating system specific fonts and expectations: snapshots are only compared between
 runs on the same machine, so a page may look different on another operating system, but its checks must pass everywhere.
@@ -110,6 +113,34 @@ They exist in JVM mode too, but make runs differ or fail depending on timing:
 docker build -t quarkus-fx-showcase-linux docker/linux
 docker run --rm --init -v "$PWD":/showcase -v "$HOME/.m2":/root/.m2 quarkus-fx-showcase-linux java tools/Cycle.java linux
 ```
+
+## Continuous integration
+
+`.github/workflows/cycle.yml` runs the cycles on GitHub Actions against a quarkus-fx commit (its runtime and deployment
+modules installed first), built with the Quarkus version of that commit, on four platforms. A plan job builds the
+matrices from one table of variants: every run has the default variants, and the nightly run adds the software pipeline
+(`-Dprism.order=sw`) on each platform.
+
+| Platform | Runner | What runs |
+|---|---|---|
+| Linux-arm64 | `ubuntu-24.04-arm` | the Linux image (Xvfb 1920x1200) : default with the tracing agent |
+| Linux-x64 | `ubuntu-24.04` | the Linux image : default |
+| Windows-x64 | `windows-2025` | Oracle GraalVM for JDK 25 on the runner desktop, at its largest display mode : default with the tracing agent |
+| macOS-arm64 | `macos-26` | Oracle GraalVM for JDK 25 on the runner desktop (a 5 GB native-image heap : 7 GB runners) : default with the tracing agent |
+
+There is no Windows-arm64 variant: neither JavaFX nor GraalVM exist for Windows on arm64. `Cycle.java` exits 1 when a
+build or a run fails or when the runs do not match. `.github/scripts/cycle-report.sh` writes the verdict, what differs,
+the screen and the pipeline of the runs to the summary of the run and as an annotation of the job; the logs, reports
+and metadata are artifacts (with the images of both runs when the job failed). `.github/scripts/windows-desktop.ps1`
+and `macos-desktop.sh` prepare and describe the runner desktops (display mode, screenshots before and after the cycle).
+The platforms that never ran on GitHub are non-blocking (`blocking` in the plan table) until they are reliably green.
+
+- `.github/workflows/showcase.yml` (this repository): on every push to main and every pull request (except the ones
+  that only change the README), every night (the builder image, the runner images and quarkus-fx change without the
+  showcase), and manually (another quarkus-fx commit, some of the platforms, the nightly variants). It tests the
+  `optimize-native` branch of Eng-Fouad/quarkus-fx (the defaults of `cycle.yml`) until it is merged.
+- `.github/workflows/showcase.yml` of quarkus-fx calls the same workflow on every push to its main branch, on its pull
+  requests labelled `showcase`, and manually.
 
 ## Pages
 

@@ -20,6 +20,8 @@ import java.util.stream.Stream;
  * <li>java tools/Snapshot.java jvm jvm-controls controls-,data-</li>
  * </ul>
  * Options after {@code --} are passed to the JVM (before -jar) or to the native executable.
+ * <p>
+ * Exit code 0 when the showcase exited normally and wrote its report, 1 otherwise (no report, a crash, the watchdog).
  */
 public class Snapshot {
 
@@ -96,7 +98,8 @@ public class Snapshot {
         boolean report = Files.exists(out.resolve("report.json"));
         System.out.println(label + ": exit=" + exit + ", " + images + " images, "
                 + (report ? "report.json written" : "NO report.json"));
-        return report ? 0 : 1;
+        // a run that crashed after its report, or that the watchdog killed, fails too
+        return report && exit == 0 ? 0 : 1;
     }
 
     static String javaExecutable() {

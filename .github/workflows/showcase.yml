@@ -1,0 +1,51 @@
+name: Showcase
+
+# The showcase against quarkus-fx on four platforms (see cycle.yml) : on every change of the showcase, and every night
+# with the nightly variants too (the builder image, the runner images and quarkus-fx move without the showcase).
+# Manually : another quarkus-fx commit, some of the platforms, the nightly variants.
+on:
+  push:
+    branches:
+      - "main"
+    paths-ignore:
+      - '.gitignore'
+      - 'LICENSE'
+      - '*.md'
+  pull_request:
+    paths-ignore:
+      - '.gitignore'
+      - 'LICENSE'
+      - '*.md'
+  schedule:
+    # GitHub disables the schedule of a public repository after 60 days without activity
+    - cron: '47 3 * * *'
+  workflow_dispatch:
+    inputs:
+      fx-ref:
+        description: quarkus-fx branch, tag or commit
+        default: optimize-native
+      platforms:
+        description: Platforms, a JSON array (Linux-arm64, Linux-x64, Windows-x64, macOS-arm64) ; empty for all four
+        default: ''
+      nightly:
+        description: Also the nightly variants
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# one group per ref (a newer push cancels an older pull request run), one per manual run
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  cycle:
+    uses: ./.github/workflows/cycle.yml
+    with:
+      showcase-repository: ${{ github.repository }}
+      showcase-ref: ${{ github.sha }}
+      fx-ref: ${{ inputs.fx-ref || 'optimize-native' }}
+      platforms: ${{ inputs.platforms || '' }}
+      nightly: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.nightly) }}
