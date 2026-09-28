@@ -357,6 +357,20 @@ function canvasProbe(x, y) {
     return [Math.round(r.left) + x, Math.round(r.top) + y, d[0], d[1], d[2], d[3]].join(',');
 }
 
+/**
+ * Rectangles (x, y, width, height in page coordinates) of two form controls that WebKit draws with JavaFX controls, on
+ * the white background of the card : 3 x 3 pixels in the value of the progress bar (40 %), and 3 rows across the top
+ * border of the text field (above its text).
+ */
+function formProbes() {
+    var progress = document.querySelector('progress').getBoundingClientRect();
+    var text = document.getElementById('name').getBoundingClientRect();
+    return [
+        Math.round(progress.left + progress.width * 0.2) - 1, Math.floor(progress.top + progress.height / 2) - 1, 3, 3,
+        Math.round(text.left + text.width / 4), Math.round(text.top) - 1, Math.round(text.width / 2), 3
+    ].join(',');
+}
+
 function greet(name) {
     return 'Hello ' + name + ' from JavaScript';
 }

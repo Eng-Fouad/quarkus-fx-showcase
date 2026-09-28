@@ -14,8 +14,4 @@ afconvert -f m4af -d aac "$RES/media/hello.wav" "$RES/media/hello.m4a"
 
 swift tools/GenVideo.swift "$RES/media/clip.mp4"
 
-# Empty libjvm.dylib for WebView in native executables (see WebKitNativeSupport)
-mkdir -p "$RES/native"
-cc -arch x86_64 -arch arm64 -dynamiclib tools/jvm-stub.c -o "$RES/native/libjvm.dylib" \
-    -install_name @rpath/libjvm.dylib -current_version 1.0.0 -compatibility_version 1.0.0
 ls -la "$RES/images" "$RES/media"

@@ -19,7 +19,6 @@ import io.quarkiverse.fx.showcase.core.Fx;
 import javafx.concurrent.Worker;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
-import javafx.scene.image.WritableImage;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -79,6 +78,7 @@ public class WebViewPage implements FeaturePage {
         String loadOutcome;
         Throwable fontsError;
         Throwable canvasError;
+        Throwable formError;
         CompletionStage<?> ready;
 
         State(WebView view) {
@@ -122,12 +122,17 @@ public class WebViewPage implements FeaturePage {
                                     state.fontsError = error;
                                     return null;
                                 }))
+                // the canvas and the form controls are painted independently : both waits at once
                 .thenCompose(v -> state.loadState != Worker.State.SUCCEEDED
                         ? CompletableFuture.completedFuture(null)
                         : canvasPainted(state).handle((painted, error) -> {
                             state.canvasError = error;
                             return null;
-                        }))
+                        }).thenCombine(WebSnapshot.controlsPainted(view, "formProbes()", "form controls")
+                                .handle((painted, error) -> {
+                                    state.formError = error;
+                                    return null;
+                                }), (canvas, form) -> null))
                 .thenApply(v -> {
                     showChecks(state);
                     return null;
@@ -159,23 +164,13 @@ public class WebViewPage implements FeaturePage {
             if (++pulses[0] % 10 != 0) {
                 return false;
             }
-            double width = state.view.getWidth();
-            double height = state.view.getHeight();
-            if (width <= 0 || height <= 0) {
-                // not laid out yet : nothing painted
+            WebSnapshot snapshot = WebSnapshot.of(state.view, "canvas");
+            if (snapshot == null) {
                 return false;
             }
             // center of the donut chart : a flat color, the same in the canvas buffer and on the page
             String[] probe = String.valueOf(state.engine.executeScript("canvasProbe(62, 76)")).split(",");
-            WritableImage snapshot = state.view.snapshot(null, null);
-            // page coordinates (CSS pixels of the WebView at zoom 1) to pixels of the snapshot, from its real size
-            int x = (int) Math.floor(Integer.parseInt(probe[0]) * snapshot.getWidth() / width);
-            int y = (int) Math.floor(Integer.parseInt(probe[1]) * snapshot.getHeight() / height);
-            if (x < 0 || y < 0 || x >= snapshot.getWidth() || y >= snapshot.getHeight()) {
-                throw new IllegalStateException("canvas probe at (" + probe[0] + ", " + probe[1]
-                        + ") outside of the WebView (" + (int) width + "x" + (int) height + ")");
-            }
-            int argb = snapshot.getPixelReader().getArgb(x, y);
+            int argb = snapshot.argb(Integer.parseInt(probe[0]), Integer.parseInt(probe[1]));
             boolean visible = Math.abs(((argb >> 16) & 0xff) - Integer.parseInt(probe[2])) < 12
                     && Math.abs(((argb >> 8) & 0xff) - Integer.parseInt(probe[3])) < 12
                     && Math.abs((argb & 0xff) - Integer.parseInt(probe[4])) < 12;
@@ -223,6 +218,9 @@ public class WebViewPage implements FeaturePage {
             js.add(state.canvasError == null ? Check.pass("canvas visible in a WebView snapshot", true)
                     : Check.fail("canvas visible in a WebView snapshot",
                             Checks.describe(WebSupport.unwrap(state.canvasError))));
+            js.add(state.formError == null ? Check.pass("form controls in a WebView snapshot", true)
+                    : Check.fail("form controls in a WebView snapshot",
+                            Checks.describe(WebSupport.unwrap(state.formError))));
             js.add(Checks.expect("canvas getImageData, donut center", "15,23,42,255", () -> {
                 String[] probe = String.valueOf(engine.executeScript("canvasProbe(62, 76)")).split(",");
                 return String.join(",", List.of(probe).subList(2, 6));

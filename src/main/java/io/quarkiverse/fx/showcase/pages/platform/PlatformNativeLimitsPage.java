@@ -23,9 +23,9 @@ import javafx.scene.web.WebEngine;
 import javafx.scene.web.WebView;
 
 /**
- * Where a native image behaves differently from the JVM because of JavaFX itself : the cause, found in the JavaFX
- * sources, and a workaround, which must work in both runtimes. A difference that quarkus-fx removes stays here with its
- * cause and workaround, and its check expects the JVM behavior in both runtimes.
+ * Where a native image behaves differently from the JVM because of JavaFX itself, or of GraalVM (os.name) : the cause,
+ * found in the JavaFX (or GraalVM) sources, and a workaround, which must work in both runtimes. A difference that
+ * quarkus-fx removes stays here with its cause and workaround, and its check expects the JVM behavior in both runtimes.
  * <p>
  * This page is {@link #runtimeDependent() runtime dependent} : its differences between a JVM run and a native run are
  * reported as EXPECTED by tools/Compare.java. Its checks still fail when a runtime does not behave as described.
@@ -142,6 +142,10 @@ public class PlatformNativeLimitsPage implements FeaturePage {
         NavigatingView relative;
         final VBox checks = new VBox(new Label("Waiting for the pages to load..."));
         final VBox navigationChecks = new VBox(new Label("Waiting for the pages to load..."));
+        final VBox osChecks = PlatformUi.checks(null, List.of(
+                Check.info("os.name", System.getProperty("os.name")),
+                Check.info("workaround : os.version", System.getProperty("os.version"))), 300,
+                PlatformUi.CONTENT_WIDTH - 18);
         CompletionStage<?> ready;
     }
 
@@ -182,11 +186,24 @@ public class PlatformNativeLimitsPage implements FeaturePage {
                         column("link to the class path URL of storage.html", state.absolute.view),
                         column("workaround : link to storage.html (relative URL)", state.relative.view)),
                 state.navigationChecks);
+        VBox osName = PlatformUi.demo("System.getProperty(\"os.name\") : computed by the native executable itself",
+                PlatformUi.note("Cause : the JVM takes os.name from the native code of the JDK (java_props_md.c), a native "
+                        + "executable from its own copy of that code (GraalVM, SubstrateVM WindowsSystemPropertiesSupport), "
+                        + "whose list of Windows versions stops at Windows Server 2022 : on Windows Server 2025 (build "
+                        + "26100), the JVM says \"Windows Server 2025\" and a native executable \"Windows Server 2022\". "
+                        + "Windows 10 and 11, macOS and Linux get the same value in both runtimes."),
+                PlatformUi.note("Workaround : the family from the start of os.name (os.name.startsWith(\"Windows\"), as "
+                        + "JavaFX does). No system property gives the product name in both runtimes : os.version is "
+                        + "\"10.0\" from Windows 10 and Windows Server 2016 on, the build number (the registry's "
+                        + "CurrentBuildNumber) tells them apart."),
+                state.osChecks);
         VBox root = PlatformUi.page(10,
-                PlatformUi.note("JavaFX APIs that behave differently in a native image, with a workaround working in both "
-                        + "runtimes. Differences between the JVM and native snapshots of this page are expected."),
+                PlatformUi.note("JavaFX APIs, and a system property, that behave differently in a native image, with a "
+                        + "workaround working in both runtimes. Differences between the JVM and native snapshots of this "
+                        + "page are expected."),
                 PlatformUi.width(userStyleSheet, PlatformUi.CONTENT_WIDTH),
-                PlatformUi.width(navigation, PlatformUi.CONTENT_WIDTH));
+                PlatformUi.width(navigation, PlatformUi.CONTENT_WIDTH),
+                PlatformUi.width(osName, PlatformUi.CONTENT_WIDTH));
         root.getProperties().put(STATE, state);
 
         String scheme = classpathUrl.substring(0, classpathUrl.indexOf(':'));

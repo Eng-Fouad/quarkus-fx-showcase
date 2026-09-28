@@ -9,6 +9,7 @@ import io.quarkiverse.fx.showcase.core.Categories;
 import io.quarkiverse.fx.showcase.core.Check;
 import io.quarkiverse.fx.showcase.core.Checks;
 import io.quarkiverse.fx.showcase.core.FeaturePage;
+import io.quarkiverse.fx.showcase.core.Platforms;
 import io.quarkiverse.fx.showcase.core.ShowcaseMode;
 import javafx.application.ConditionalFeature;
 import javafx.application.Platform;
@@ -48,7 +49,10 @@ public class OverviewPage implements FeaturePage {
         List<Check> checks = new ArrayList<>();
         checks.add(Check.info("javafx.runtime.version", System.getProperty("javafx.runtime.version")));
         checks.add(Check.info("java.version", System.getProperty("java.version")));
-        checks.add(Check.info("os", System.getProperty("os.name") + " " + System.getProperty("os.arch")));
+        // not os.name : a native executable computes it itself, differently on Windows Server 2025 (see
+        // platform-native-limits)
+        checks.add(Check.info("os family, os.version, os.arch", Platforms.pick("macOS", "Windows", "Linux") + ", "
+                + System.getProperty("os.version") + ", " + System.getProperty("os.arch")));
         checks.add(Check.info("prism pipeline", ShowcaseMode.graphicsPipeline()));
         Screen screen = Screen.getPrimary();
         Rectangle2D bounds = screen.getBounds();

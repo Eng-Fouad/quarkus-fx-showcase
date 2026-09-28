@@ -2,6 +2,7 @@ package io.quarkiverse.fx.showcase.pages.web;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 import jakarta.inject.Singleton;
@@ -35,6 +36,14 @@ public class HtmlEditorPage implements FeaturePage {
 
     private static final String STATE = HtmlEditorPage.class.getName();
     private static final String CONTENT = "/showcase/web/editor.html";
+    /**
+     * Script : the right edge of the page (x, y, width, height in page coordinates), where WebKit draws the vertical
+     * scroll bar over the content when it does not fit (the page keeps its width : clientWidth is innerWidth), none when
+     * it fits.
+     */
+    private static final String SCROLL_BAR_PROBE = "(function () { var viewport = document.scrollingElement;"
+            + " return viewport.scrollHeight > viewport.clientHeight"
+            + " ? [window.innerWidth - 3, 0, 3, window.innerHeight].join(',') : ''; })()";
 
     @Override
     public String id() {
@@ -64,6 +73,7 @@ public class HtmlEditorPage implements FeaturePage {
         final VBox htmlChecks = new VBox();
         final VBox skinChecks = new VBox();
         String error;
+        Throwable scrollBarError;
         CompletionStage<?> ready;
     }
 
@@ -126,6 +136,17 @@ public class HtmlEditorPage implements FeaturePage {
                 .thenCompose(v -> Fx.pulses(5))
                 .handle((v, error) -> {
                     state.error = error == null ? null : Checks.describe(WebSupport.unwrap(error));
+                    return null;
+                })
+                // WebKit draws the scroll bar of the content with a JavaFX ScrollBar (see WebSnapshot.controlsPainted)
+                .thenCompose(v -> state.error != null
+                        ? CompletableFuture.completedFuture(null)
+                        : WebSnapshot.controlsPainted(webView(editor), SCROLL_BAR_PROBE, "HTMLEditor scroll bar")
+                                .handle((painted, error) -> {
+                                    state.scrollBarError = error;
+                                    return null;
+                                }))
+                .thenApply(v -> {
                     showChecks(state);
                     return null;
                 })
@@ -222,6 +243,11 @@ public class HtmlEditorPage implements FeaturePage {
             }
             return false;
         }));
+        if (state.error == null) {
+            skin.add(state.scrollBarError == null ? Check.pass("scroll bar in a WebView snapshot", true)
+                    : Check.fail("scroll bar in a WebView snapshot",
+                            Checks.describe(WebSupport.unwrap(state.scrollBarError))));
+        }
 
         state.htmlChecks.getChildren().setAll(Checks.view("getHtmlText()", html));
         state.skinChecks.getChildren().setAll(Checks.view("Skin & toolbars", skin));

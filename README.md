@@ -64,8 +64,8 @@ pixels. Differences of at most 2 levels per channel on less than 0.5% of the pix
 noise: the same differences appear between two JVM runs using different execution modes (JIT vs `-Xint`).
 
 A page whose `runtimeDependent()` is `true` shows where a native image legitimately behaves differently from the JVM
-because of JavaFX itself (`platform-native-limits`: the cause, found in the JavaFX sources, and a workaround working in
-both runtimes). Its differences are reported as `EXPECTED`, not as mismatches; its failed checks still are.
+because of JavaFX or GraalVM (`platform-native-limits`: the cause, found in the JavaFX or GraalVM sources, and a
+workaround working in both runtimes). Its differences are reported as `EXPECTED`, not as mismatches; its failed checks still are.
 
 Both runs of a comparison must use the same Prism pipeline (`d3d`, `mtl`, `es2` or `sw`): it is shown on the
 environment page and in `report.json`, and a difference is reported as an `ENV DIFF` mismatch.
@@ -79,9 +79,6 @@ Everything JavaFX needs in a native executable comes from quarkus-fx, except wha
 - `src/main/resources/META-INF/native-image/io.quarkiverse.fx.showcase/quarkus-fx-showcase/`: JNI access for the Java
   objects exposed to JavaScript in a WebView, serialization of the clipboard custom format, and the Hijrah calendar data
   (with `JavaHomeFeature`, a workaround for [oracle/graal#11410](https://github.com/oracle/graal/issues/11410))
-- `WebKitNativeSupport`: on macOS, `libjfxwebkit.dylib` links to `libjvm.dylib` without using it, an empty stand-in is
-  installed next to it so that WebView loads in native executables (not needed on Windows: no JavaFX DLL imports
-  `jvm.dll`, see `dumpbin /dependents jfxwebkit.dll`)
 
 ## JavaFX behaviors the pages work around
 
@@ -100,6 +97,13 @@ They exist in JVM mode too, but make runs differ or fail depending on timing:
   it repeats a seek from another position until the frame of the current time is shown, and replaces a player whose
   first seek to 0 does not show frame 0. A few runs still fail (all the new players fail with `ERROR_MEDIA_INVALID`
   once one got stuck).
+- WebKit form controls and scroll bars (`RenderThemeImpl`, `ScrollBarThemeImpl`): WebKit draws them with JavaFX controls
+  that it creates while it paints the page, and renders at once, before their first CSS pass: without a skin they come
+  out empty, and WebKit does not paint them again by itself. Depending on timing (fewer CPUs, `-Xint`), the form
+  controls of `web-webview` or the vertical scroll bar of `web-htmleditor` were missing. Both pages look for them in a
+  snapshot and repaint the WebView until they are drawn (`WebSnapshot.controlsPainted`: setting another font smoothing
+  type and back marks the whole page dirty without changing a pixel), and log `WebView repainted ...` when one was
+  needed.
 
 ## Native image configuration tools
 
