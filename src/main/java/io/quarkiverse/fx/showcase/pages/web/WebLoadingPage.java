@@ -26,7 +26,7 @@ import javafx.scene.web.WebView;
  * data: URL, WebView zoom and font scale, JavaScript UI callbacks (alert, confirm, prompt) and a WebEngine without
  * WebView with JavaScript disabled.
  * <p>
- * A user style sheet given as a classpath URL is only accepted in JVM mode : see
+ * A user style sheet given as a classpath URL is only accepted in native executables with quarkus-fx : see
  * {@link io.quarkiverse.fx.showcase.pages.platform.PlatformNativeLimitsPage}.
  */
 @Singleton
